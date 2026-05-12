@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+	*, *::before, *::after {
+		box-sizing: border-box;
+	}
+
+	html, body, #root {
+		height: 100%;
+		margin: 0;
+		padding: 0;
+	}
+
+	body {
+		background-color: #f8fafc; /* bg-slate-50 */
+		color: #0f172a; /* text-slate-900 */
+		font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		overflow: hidden;
+	}
+
+	::-webkit-scrollbar {
+		width: 5px;
+		height: 5px;
+	}
+
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: #cbd5e1; /* 밝은 회색 */
+		border-radius: 99px;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: #94a3b8;
+	}
+
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: #cbd5e1 transparent;
+	}
+}
+
+@layer utilities {
+	.glass {
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+	}
+
+	.text-gradient {
+		background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+}
+
+.markdown-body {
+	line-height: 1.7;
+	word-break: break-word;
+}
+
+.markdown-body > * + * {
+	margin-top: 1em;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+	font-weight: 600;
+	margin-top: 1.5em;
+	margin-bottom: 0.75em;
+	color: #1e293b;
+}
+
+.markdown-body p {
+	color: #334155;
+}
+
+.markdown-body pre {
+	margin: 1.2em 0;
+	border-radius: 12px;
+	border: 1px solid #e2e8f0;
+}
+
+.markdown-body code:not(pre code) {
+	background-color: #f1f5f9;
+	color: #6366f1;
+	padding: 0.2em 0.4em;
+	border-radius: 4px;
+	font-size: 0.85em;
+	font-family: 'DM Mono', monospace;
+}
+
+.markdown-body table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1.5em 0;
+}
+
+.markdown-body th, .markdown-body td {
+	border: 1px solid #e2e8f0;
+	padding: 0.75em 1em;
+	text-align: left;
+}
+
+.markdown-body th {
+	background-color: #f8fafc;
+	font-weight: 600;
+}
