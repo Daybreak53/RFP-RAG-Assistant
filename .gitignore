@@ -77,3 +77,15 @@ ehthumbs.db
 *.ntvs*
 *.njsproj
 *.sln
+
+# =========================
+# 6. Qdrant (Vector Database)
+# =========================
+qdrant_storage/
+storage/
+qdrant_snapshots/
+snapshots/
+local_qdrant/
+*.db
+*.sqlite3
+*.local

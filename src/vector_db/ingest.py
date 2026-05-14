@@ -1,11 +1,10 @@
 from qdrant_client.models import PointStruct
 from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
-from src.core.config import EMBEDDING_PROVIDER, COLLECTION_MAP
 from data.dummy_data import dummy_data
 
 
-def ingest():
+def ingest(embed_provider: str, collection_name: str):
 
     points = []
 
@@ -24,8 +23,7 @@ def ingest():
         내용: {m['content']}
         """
 
-        vector = embed_text(text, provider=EMBEDDING_PROVIDER)
-        collection = COLLECTION_MAP[EMBEDDING_PROVIDER]
+        vector = embed_text(text, provider=embed_provider)
 
         points.append(
             PointStruct(
@@ -50,8 +48,8 @@ def ingest():
         )
 
     client.upsert(
-        collection_name=collection,
+        collection_name=collection_name,
         points=points
     )
 
-    print("ingestion 완료")
+    print(f"ingestion 완료 (컬렉션: {collection_name}, 모델: {embed_provider})")
