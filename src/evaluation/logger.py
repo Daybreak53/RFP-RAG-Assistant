@@ -6,9 +6,6 @@ class LangfuseEvalLogger:
         self.langfuse = get_client()
 
     def log_evaluation_results(self, eval_results: pd.DataFrame, trace_id_col: str = "trace_id"):
-        """
-        DataFrame의 각 행에 있는 trace_id를 매핑하여 Langfuse 해당 Trace에 점수를 직접 기록합니다.
-        """
         print("Langfuse에 Ragas 평가 지표를 기록하는 중...")
         
         input_col = 'user_input' if 'user_input' in eval_results.columns else 'question'
