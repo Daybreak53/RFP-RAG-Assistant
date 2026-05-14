@@ -4,7 +4,7 @@ PDF/HWP 문서를 LangChain Document 형태로 로드합니다.
 
 import os
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_teddynote.document_loaders import HWPLoader
+from src.parsing.hwp_loader import HWPLoader
 
 
 def load_documents(data_dir: str):
