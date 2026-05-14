@@ -13,7 +13,7 @@ from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
 
 class RagasEvaluator:
-    def __init__(self, provider="gemini", metrics=None):
+    def __init__(self, model_name, metrics=None):
         self.metrics = metrics or [
             ContextPrecision(),
             ContextRecall(),
@@ -21,10 +21,10 @@ class RagasEvaluator:
             AnswerRelevancy(),
         ]
 
-        self.provider = provider.lower()
+        self.model_name = model_name
 
         try:
-            if self.provider == "openai":
+            if self.model_name == "gpt-4o-mini":
                 self.eval_llm = LangchainLLMWrapper(
                     ChatOpenAI(model="gpt-4o-mini")
                 )
@@ -32,7 +32,7 @@ class RagasEvaluator:
                     OpenAIEmbeddings(model="text-embedding-3-small")
                 )
                 
-            elif self.provider == "gemini":
+            elif self.model_name == "gemini-3.1-flash-lite":
                 self.eval_llm = LangchainLLMWrapper(ChatGoogleGenerativeAI(
                     model="gemini-3.1-flash-lite", 
                     temperature=0,
@@ -43,7 +43,7 @@ class RagasEvaluator:
                 )
                 
             else:
-                raise ValueError(f"지원하지 않는 Provider입니다: '{provider}'")
+                raise ValueError(f"지원하지 않는 모델입니다: '{model_name}'")
         except Exception as e:
             print(f"[오류] LLM/Embeddings 초기화 실패. API 키를 확인해주세요: {e}")
             raise
