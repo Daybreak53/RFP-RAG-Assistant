@@ -28,6 +28,6 @@ if __name__ == "__main__":
 
     evaluate(
         evaluation_data=[result], 
-        model_name="gemini-3.1-flash-lite", 
+        model_name="gpt-5-nano", 
         is_local=False
     )
