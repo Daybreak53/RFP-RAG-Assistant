@@ -14,5 +14,6 @@ def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, q
     return {
         "user_input": query,
         "response": answer,
-        "retrieved_context": [d.get("content", "") for d in docs], 
+        "retrieved_context": [d.get("content", "") for d in docs],
+        "reference": "AWS 기반 클라우드 전환 사업이다. Kubernetes 운영 경험이 필요하다."
     }

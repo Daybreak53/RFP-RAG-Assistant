@@ -2,7 +2,7 @@ pipeline:
   run_all: false       # true일 경우 전체 파이프라인 순차 실행
   run_parse: false     # 파싱 실행 여부
   run_ingest: false    # DB 적재 실행 여부
-  run_query: true      # 질의(RAG) 실행 여부
+  run_query: false      # 질의(RAG) 실행 여부
   run_eval: false      # 평가 실행 여부
 
 collection_name:
