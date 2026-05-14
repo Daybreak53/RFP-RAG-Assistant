@@ -21,10 +21,10 @@ if __name__ == "__main__":
 
     print("\n===== 답변 =====\n")
 
-    print(result)
+    print(result["response"])
 
     evaluate(
-        evaluation_data=result, 
+        evaluation_data=[result], 
         model_name="gemini-3.1-flash-lite", 
         is_local=False
     )

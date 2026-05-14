@@ -39,7 +39,7 @@ def evaluate(
     data_samples = {
         "user_input": [d["user_input"] for d in evaluation_data],
         "response": [d["response"] for d in evaluation_data],
-        "retrieved_contexts": [[d["retrieved_context"]] for d in evaluation_data],
+        "retrieved_contexts": [d["retrieved_context"] for d in evaluation_data],
         "reference": [d["reference"] for d in evaluation_data],
         "trace_id": trace_ids
     }
@@ -53,6 +53,5 @@ def evaluate(
     # Langfuse에 평가 결과 기록
     logger = LangfuseEvalLogger()
     logger.log_evaluation_results(
-        eval_output=eval_output,
-        model_name=model_name,
+        eval_results=eval_output
     )
