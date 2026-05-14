@@ -4,3 +4,4 @@ datasets
 pandas
 python-dotenv
 openai
+qdrant-client
