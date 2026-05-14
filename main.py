@@ -4,12 +4,15 @@ from src.vector_db.vectordb import create_collection
 from src.vector_db.ingest import ingest
 from src.generation.pipeline import rag_pipeline
 from src.core.config import EMBEDDING_PROVIDER
+from src.parsing.run_parsing import main as run_parsing
 
 # 환경 변수 로드
 load_dotenv()
 
 if __name__ == "__main__":
     print("main 시작")
+
+    run_parsing()
 
     create_collection(provider=EMBEDDING_PROVIDER)
 
