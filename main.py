@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="전체 파이프라인 실행")
     parser.add_argument("--parse", action="store_true", help="문서 파싱 실행")
     parser.add_argument("--ingest", action="store_true", help="DB 세팅 및 적재 실행")
-    parser.add_argument("--query", type=str, help="실행할 질의어 (입력 시 질의 단계 자동 실행)")
+    parser.add_argument("--query", type=str, nargs="?", const="__use_yaml__", help="실행할 질의어 (입력 시 질의 단계 자동 실행)")
     parser.add_argument("--eval", action="store_true", help="평가 실행")
     
     # 변인 제어 인자
@@ -46,8 +46,14 @@ def main():
     run_parse = run_all or args.parse or config['pipeline'].get('run_parse', False)
     run_ingest = run_all or args.ingest or config['pipeline'].get('run_ingest', False)
     
-    query_text = args.query if args.query else config.get('query')
-    run_query = run_all or bool(args.query) or config['pipeline'].get('run_query', False)
+    if args.query == "__use_yaml__" or args.query is None and config['pipeline'].get('run_query', False):
+        query_text = config.get('query')
+    elif args.query and args.query != "__use_yaml__":
+        query_text = args.query
+    else:
+        query_text = config.get('query')
+        
+    run_query = run_all or (args.query is not None) or config['pipeline'].get('run_query', False)
     run_eval = run_all or args.eval or config['pipeline'].get('run_eval', False)
 
     # 변인 설정

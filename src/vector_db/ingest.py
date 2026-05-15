@@ -2,6 +2,7 @@ import uuid
 from qdrant_client.models import PointStruct
 from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
+from src.embeddings.sparse_embed import embed_sparse_text
 
 def ingest(embed_provider: str, collection_name: str, rag_data: list):
     print(f"총 {len(rag_data)}개의 데이터 벡터 DB 적재 시작...")
@@ -21,14 +22,18 @@ def ingest(embed_provider: str, collection_name: str, rag_data: list):
             내용: {m.get('content', '')}
             """
             
-            vector = embed_text(text_to_embed, provider=embed_provider)
+            dense_vector = embed_text(text_to_embed, provider=embed_provider)
+            sparse_vector = embed_sparse_text(text_to_embed)
             
             # 고유 ID 생성
             point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, item["id"]))
 
             yield PointStruct(
                 id=point_id,
-                vector=vector,
+                vector={
+                    "dense": dense_vector,
+                    "sparse": sparse_vector,
+                },
                 payload=m
             )
     

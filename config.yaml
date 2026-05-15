@@ -15,12 +15,12 @@ collection_name:
   local: "rfp_rag_local"
   openai: "rfp_rag_openai"
 
-query: "AWS 리소스가 필요한 사업 찾아줘"
+query: "장애 발생 시 정상화 목표 시간과 발주기관 담당자 통보 절차는?"
 
 retrieval:
   top_k: 3
-  score_threshold: 0.2
-  search_mode: "vector"    # "vector" | "hybrid"
+  score_threshold: 0.7
+  search_mode: "hybrid"    # "vector" | "keyword" | "hybrid"
 
 providers:
   embedding: "openai"  # 임베딩 모델
