@@ -1,7 +1,14 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
+from dotenv import load_dotenv
+import os
 
-client = QdrantClient(path="./qdrant_db_data")
+load_dotenv()
+
+client = QdrantClient(
+    url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY")
+)
 
 def create_collection(embed_provider, collection_name):
     size_map = {
@@ -14,6 +21,6 @@ def create_collection(embed_provider, collection_name):
         collection_name=collection_name,
         vectors_config=VectorParams(
             size=size_map[embed_provider],
-            distance=Distance.COSINE
+            distance=Distance.COSINE    
         )
     )
