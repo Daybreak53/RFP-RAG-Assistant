@@ -1,0 +1,91 @@
+# ==============================================================================
+# 1. Environment Variables & Secrets
+# ==============================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ==============================================================================
+# 2. Python & Backend
+# ==============================================================================
+# Python 캐시 및 컴파일 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 파이썬 가상환경
+venv/
+.venv/
+env/
+.env_python/
+
+# Jupyter Notebook 캐시
+.ipynb_checkpoints/
+
+# Vector DB 및 모델 다운로드 파일
+chroma_db/
+faiss_index/
+*.onnx
+*.bin
+*.pt
+*.safetensors
+
+# ==============================================================================
+# 3. Node.js
+# ==============================================================================
+# 패키지 및 모듈
+node_modules/
+/frontend/node_modules/
+
+# 빌드 결과물
+dist/
+dist-ssr/
+build/
+out/
+/frontend/dist/
+
+# 로그 파일
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==============================================================================
+# 4. Data & Documents
+# ==============================================================================
+*.pdf
+*.hwp
+*.hwpx
+*.csv
+*.xlsx
+data/
+/backend/data/
+
+# ==============================================================================
+# 5. OS & Editor
+# ==============================================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# =========================
+# 6. Qdrant (Vector Database)
+# =========================
+qdrant_storage/
+storage/
+qdrant_snapshots/
+snapshots/
+local_qdrant/
+*.db
+*.sqlite3
+*.local
