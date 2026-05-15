@@ -1,5 +1,4 @@
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client import QdrantClient, models
 from dotenv import load_dotenv
 import os
 
@@ -17,10 +16,19 @@ def create_collection(embed_provider, collection_name):
     }
 
     client.delete_collection(collection_name=collection_name)
+
     client.create_collection(
         collection_name=collection_name,
-        vectors_config=VectorParams(
-            size=size_map[embed_provider],
-            distance=Distance.COSINE    
-        )
+        vectors_config={
+            "dense": models.VectorParams(
+                size=size_map[embed_provider],
+                distance=models.Distance.COSINE    
+            )
+        },
+        sparse_vectors_config={
+            "sparse": models.SparseVectorParams(
+                modifier=models.Modifier.IDF 
+            )
+        }
     )
+    print(f"[벡터 DB] 컬렉션 '{collection_name}' 생성 및 텍스트 인덱스 설정 완료")
