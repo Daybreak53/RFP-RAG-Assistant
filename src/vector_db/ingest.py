@@ -1,51 +1,42 @@
+import uuid
 from qdrant_client.models import PointStruct
 from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
-from src.parsing.run_parsing import RAG_JSON_PATH
-import json
 
-
-def ingest(embed_provider: str, collection_name: str, file_path=RAG_JSON_PATH):
-    print(f"데이터 로드 시작: {file_path}")
+def ingest(embed_provider: str, collection_name: str, rag_data: list):
+    print(f"총 {len(rag_data)}개의 데이터 벡터 DB 적재 시작...")
     
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            data_list = json.load(f)
-    except Exception as e:
-        print(f"데이터 로드 중 오류 발생: {e}")
-        return
-    
-    points = []
+    def generate_points():
+        for item in rag_data:
+            m = item.get("metadata", {})
 
-    for i, item in enumerate(data_list):
-        m = item.get("metadata", {})
-        
-        text = f"""
-        제목: {m.get('title', '')}
-        기관: {m.get('organization', '')}
-        예산: {m.get('budget', 0)}
-        공고일: {m.get('announcement_date', '')}
-        입찰 시작: {m.get('bid_start', '')}
-        입찰 마감: {m.get('bid_deadline', '')}
-        섹션: {m.get('section_title', '')}
-        내용: {m.get('content', '')}
-        """
+            text_to_embed = f"""
+            제목: {m.get('title', '')}
+            기관: {m.get('organization', '')}
+            예산: {m.get('budget', 0)}
+            공고일: {m.get('announcement_date', '')}
+            입찰 시작: {m.get('bid_start', '')}
+            입찰 마감: {m.get('bid_deadline', '')}
+            섹션: {m.get('section_title', '')}
+            내용: {m.get('content', '')}
+            """
+            
+            vector = embed_text(text_to_embed, provider=embed_provider)
+            
+            # 고유 ID 생성
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, item["id"]))
 
-        vector = embed_text(text, provider=embed_provider)
-
-        points.append(
-            PointStruct(
-                id=i,
+            yield PointStruct(
+                id=point_id,
                 vector=vector,
-                payload=m #메타데이터에 있는거 어차피 다 쓰니까 코드간결화를 위해 통쨰로 넣음
+                payload=m
             )
-        )
-
-        if len(points) >= 100: #api 사용을 위해 너무 과도한 양의 데이터가 전송되지 않도록 조절
-            client.upsert(collection_name, points=points)
-            points = []
- 
-    if points:       # 위에서 처리 안된 100개 미만의 벡터 전송
-        client.upsert(collection_name, points=points)
+    
+    client.upload_points(
+        collection_name=collection_name,
+        points=generate_points(),
+        batch_size=100, # Qdrant의 내장 배치 업로드 기능 사용
+        parallel=2 # 병렬 처리 워커 수
+    )
 
     print(f"ingestion 완료 (컬렉션: {collection_name}, 모델: {embed_provider})")

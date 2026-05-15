@@ -5,7 +5,7 @@ from src.evaluation.evaluate import evaluate
 from src.vector_db.vectordb import create_collection
 from src.vector_db.ingest import ingest
 from src.generation.pipeline import rag_pipeline
-from src.parsing.run_parsing import main as run_parsing
+from src.parsing.run_parsing import run_parsing
 
 def load_config(config_path="config.yaml"):
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -65,26 +65,32 @@ def main():
     print(f"[설정] 임베딩: {embed_provider} | LLM: {llm_provider}\n")
 
     # 단계별 실행 로직
-    if run_parse:
-        print("--- [1] 문서 파싱 시작 ---")
-        run_parsing(
-            chunk_mode=chunk_mode,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            match_threshold=match_threshold
-        )
+    if run_parse or run_ingest:
+        rag_data = None
+        if run_parse:
+            print("--- [1] 문서 파싱 시작 ---")
+            rag_data = run_parsing(
+                chunk_mode=chunk_mode,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                match_threshold=match_threshold
+            )
         
-    if run_ingest:
-        print(f"--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")
-        create_collection(
-            embed_provider=embed_provider, 
-            collection_name=collection_name
-        )
-        ingest(
-            embed_provider=embed_provider,
-            collection_name=collection_name
-        ) 
-        
+        if run_ingest:
+            if not rag_data:
+                print("[경고] 파싱된 데이터가 없어 DB 적재를 수행할 수 없습니다.")
+            else:
+                print(f"--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")
+                create_collection(
+                    embed_provider=embed_provider, 
+                    collection_name=collection_name
+                )
+                ingest(
+                    embed_provider=embed_provider,
+                    collection_name=collection_name,
+                    rag_data=rag_data
+                )
+            
     if run_query and query_text:
         print(f"--- [3] RAG 파이프라인 질의 시작 ---")
         print(f"질의: {query_text}")

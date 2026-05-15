@@ -9,8 +9,7 @@ from src.parsing.parser import (
 
 def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, match_threshold=None):
     data_dir = "data"
-    csv_path = "data_list.csv"
-    rag_json_path = "src/parsing/rag_data.json"
+    csv_path = "data/data_list.csv"
 
     if not os.path.exists(data_dir):
         raise FileNotFoundError(f"data 폴더가 없습니다: {data_dir}")
@@ -18,7 +17,7 @@ def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, match_thre
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"CSV 파일이 없습니다: {csv_path}")
 
-    metadata_map = load_metadata_db(
+    metadata_map, _ = load_metadata_db(
         csv_path=csv_path,
         data_dir=data_dir,
         threshold=match_threshold,
@@ -35,7 +34,5 @@ def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, match_thre
 
     rag_data = convert_chunks_to_rag_format(chunks, metadata_map=metadata_map)
 
-    with open(rag_json_path, "w", encoding="utf-8") as f:
-        json.dump(rag_data, f, ensure_ascii=False, indent=2)
-
-    print(f"RAG JSON 저장 완료: {rag_json_path} ({len(rag_data)}개 청크)")
+    print(f"파싱 완료: {len(rag_data)}개 청크 생성됨")
+    return rag_data
