@@ -1,6 +1,11 @@
 import argparse
 import yaml
 from dotenv import load_dotenv
+from src.evaluation.evaluate import evaluate
+from src.vector_db.vectordb import create_collection
+from src.vector_db.ingest import ingest
+from src.generation.pipeline import rag_pipeline
+from src.parsing.run_parsing import run_parsing
 from src.generation.pipeline import find_reference_for_query, rag_pipeline
 
 def load_config(config_path="config.yaml"):

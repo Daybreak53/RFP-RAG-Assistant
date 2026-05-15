@@ -48,16 +48,7 @@ def find_reference_for_query(query):
     return ""
 
 
-def rag_pipeline(
-    collection_name: str,
-    embed_provider: str,
-    llm_provider: str,
-    query: str,
-    top_k=3,
-    score_threshold=0.2,
-    search_mode="vector",
-    reference=None,
-):
+def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str, top_k=3, score_threshold=0.2, search_mode="vector", reference=None):
     from src.retrieval.retriever import retrieve
     from src.generation.gen import generate_answer
 
