@@ -9,7 +9,8 @@ def create_collection(embed_provider, collection_name):
         "openai": 1536
     }
 
-    client.recreate_collection(
+    client.delete_collection(collection_name=collection_name)
+    client.create_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(
             size=size_map[embed_provider],

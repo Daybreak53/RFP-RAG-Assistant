@@ -28,6 +28,9 @@ def main():
     # 변인 제어 인자
     parser.add_argument("--embed_provider", type=str, help="임베딩 모델 덮어쓰기")
     parser.add_argument("--llm_provider", type=str, help="LLM 모델 덮어쓰기")
+    parser.add_argument("--top_k", type=int, help="검색 결과 수 덮어쓰기")
+    parser.add_argument("--score_threshold", type=float, help="유사도 임계값 덮어쓰기")
+    parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/hybrid)")
 
     args = parser.parse_args()
     
@@ -47,6 +50,10 @@ def main():
     embed_provider = args.embed_provider or config['providers'].get('embedding', 'openai')
     llm_provider = args.llm_provider or config['providers'].get('llm', 'openai')
     collection_name = config['collection_name'].get(embed_provider, 'openai')
+    retrieval_config = config.get("retrieval", {})
+    top_k = args.top_k or retrieval_config.get("top_k", 3)
+    score_threshold = args.score_threshold or retrieval_config.get("score_threshold", 0.2)
+    search_mode = args.search_mode or retrieval_config.get("search_mode", "vector")
     
     print(f"[설정] 임베딩: {embed_provider} | LLM: {llm_provider}\n")
 
@@ -74,7 +81,10 @@ def main():
             collection_name=collection_name,
             embed_provider=embed_provider,
             llm_provider=llm_provider,
-            query=query_text
+            query=query_text,
+            top_k=top_k,
+            score_threshold=score_threshold,
+            search_mode=search_mode
         )
         
         print("\n===== 답변 =====")

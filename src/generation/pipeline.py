@@ -1,9 +1,9 @@
 from src.retrieval.retriever import retrieve
 from src.generation.gen import generate_answer
 
-def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str):
+def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str, top_k=3, score_threshold=0.2, search_mode="vector"):
 
-    docs = retrieve(collection_name, embed_provider, query)
+    docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold)
 
     answer = generate_answer(
         query,

@@ -4,7 +4,14 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+_client = None
+
+def get_client():
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _client
 
 def generate_answer(query, docs, provider="local"):
 
@@ -21,7 +28,6 @@ def generate_answer(query, docs, provider="local"):
         """
         for i, d in enumerate(docs)
     ])
-    #입찰 기간으로 입찰 시작, 종료기간을 합쳐 가독성 증가
 
     prompt = f"""
     당신은 RFP/입찰 분석 전문가이다.
@@ -41,6 +47,7 @@ def generate_answer(query, docs, provider="local"):
     {query}
     """
     if provider == "openai":
+        client = get_client()
         res = client.chat.completions.create(
             model="gpt-5-nano",
             messages=[
