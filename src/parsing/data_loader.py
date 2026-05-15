@@ -37,8 +37,8 @@ def load_documents(data_dir: str):
                 print("HWP 로드 실패:", file)
                 print(e)
 
-        else:
-            print("제외:", file)
+        # else:
+        #     print("제외:", file)
 
     print("\n전체 로드된 Document 수:", len(documents))
     return documents

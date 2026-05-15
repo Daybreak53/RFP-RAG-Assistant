@@ -4,7 +4,14 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+_client = None
+
+def get_client():
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _client
 
 def generate_answer(query, docs, provider="local"):
     #파일명을 답변에 사용할 수 있도록 메타데이터의 file_name 을 context 맨위로 추가
@@ -50,6 +57,7 @@ def generate_answer(query, docs, provider="local"):
     {query}
     """
     if provider == "openai":
+        client = get_client()
         res = client.chat.completions.create(
             model="gpt-5-nano",
             messages=[
