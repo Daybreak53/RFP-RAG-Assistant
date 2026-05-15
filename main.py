@@ -26,6 +26,10 @@ def main():
     parser.add_argument("--eval", action="store_true", help="평가 실행")
     
     # 변인 제어 인자
+    parser.add_argument("--chunk_mode", type=str, help="청킹 방식 덮어쓰기 (recursive/semantic/sentence)")
+    parser.add_argument("--chunk_size", type=int, help="청크 크기 덮어쓰기")
+    parser.add_argument("--chunk_overlap", type=int, help="청크 오버랩 덮어쓰기")
+    parser.add_argument("--match_threshold", type=float, help="match threshold 덮어쓰기")
     parser.add_argument("--embed_provider", type=str, help="임베딩 모델 덮어쓰기")
     parser.add_argument("--llm_provider", type=str, help="LLM 모델 덮어쓰기")
     parser.add_argument("--top_k", type=int, help="검색 결과 수 덮어쓰기")
@@ -47,20 +51,28 @@ def main():
     run_eval = run_all or args.eval or config['pipeline'].get('run_eval', False)
 
     # 변인 설정
+    chunk_mode = args.chunk_mode or config['parsing'].get("chunk_mode", "recursive")
+    chunk_size = args.chunk_size or config['parsing'].get("chunk_size", 500)
+    chunk_overlap = args.chunk_overlap or config['parsing'].get("chunk_overlap", 50)
+    match_threshold = args.chunk_overlap or config['parsing'].get("match_threshold", 0.55)
     embed_provider = args.embed_provider or config['providers'].get('embedding', 'openai')
     llm_provider = args.llm_provider or config['providers'].get('llm', 'openai')
     collection_name = config['collection_name'].get(embed_provider, 'openai')
-    retrieval_config = config.get("retrieval", {})
-    top_k = args.top_k or retrieval_config.get("top_k", 3)
-    score_threshold = args.score_threshold or retrieval_config.get("score_threshold", 0.2)
-    search_mode = args.search_mode or retrieval_config.get("search_mode", "vector")
+    top_k = args.top_k or config['retrieval'].get("top_k", 3)
+    score_threshold = args.score_threshold or config['retrieval'].get("score_threshold", 0.2)
+    search_mode = args.search_mode or config['retrieval'].get("search_mode", "vector")
     
     print(f"[설정] 임베딩: {embed_provider} | LLM: {llm_provider}\n")
 
     # 단계별 실행 로직
     if run_parse:
         print("--- [1] 문서 파싱 시작 ---")
-        run_parsing()
+        run_parsing(
+            chunk_mode=chunk_mode,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            match_threshold=match_threshold
+        )
         
     if run_ingest:
         print(f"--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")

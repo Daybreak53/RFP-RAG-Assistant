@@ -8,12 +8,32 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.parsing.meta_db import normalize_filename
 
 
-def create_chunks(documents, chunk_size=500, chunk_overlap=50):
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50):
+    if chunk_mode == "recursive":
+        return recursive_chunk(documents, chunk_size, chunk_overlap)
+    elif chunk_mode == "semantic":
+        return semantic_chunk(documents)
+    elif chunk_mode == "sentence":
+        return sentence_chunk(documents)
+    else:
+        raise ValueError(f"지원하지 않는 chunk_mode: '{chunk_mode}'")
+
+def recursive_chunk(documents, chunk_size, chunk_overlap):
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
     )
     return splitter.split_documents(documents)
+
+def semantic_chunk(documents):
+    # TODO
+    raise NotImplementedError("시맨틱 청킹 구현 필요")
+
+def sentence_chunk(documents):
+    # TODO
+    raise NotImplementedError("문장 단위 청킹 구현 필요")
 
 
 def chunk_size_experiment(documents, start=100, end=1000, step=100, overlap_ratio=0.1):
