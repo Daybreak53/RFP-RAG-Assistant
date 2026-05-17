@@ -13,3 +13,5 @@ langchain-core
 langchain-text-splitters
 langchain-google-genai
 sentence-transformers
+olefile
+kiwipiepy

@@ -1,57 +1,47 @@
+import uuid
 from qdrant_client.models import PointStruct
 from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
-from src.core.config import EMBEDDING_PROVIDER, COLLECTION_MAP
-from data.dummy_data import dummy_data
+from src.embeddings.sparse_embed import embed_sparse_text
 
+def ingest(embed_provider: str, collection_name: str, rag_data: list):
+    print(f"총 {len(rag_data)}개의 데이터 벡터 DB 적재 시작...")
+    
+    def generate_points():
+        for item in rag_data:
+            m = item.get("metadata", {})
 
-def ingest():
+            text_to_embed = f"""
+            제목: {m.get('title', '')}
+            기관: {m.get('organization', '')}
+            예산: {m.get('budget', 0)}
+            공고일: {m.get('announcement_date', '')}
+            입찰 시작: {m.get('bid_start', '')}
+            입찰 마감: {m.get('bid_deadline', '')}
+            섹션: {m.get('section_title', '')}
+            내용: {m.get('content', '')}
+            """
+            
+            dense_vector = embed_text(text_to_embed, provider=embed_provider)
+            sparse_vector = embed_sparse_text(text_to_embed)
+            
+            # 고유 ID 생성
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, item["id"]))
 
-    points = []
-
-    for i, item in enumerate(dummy_data):
-
-        m = item["metadata"]
-
-        text = f"""
-        제목: {m['title']}
-        기관: {m['organization']}
-        예산: {m['budget']}
-        공고일: {m['announcement_date']}
-        입찰 시작: {m['bid_start']}
-        입찰 마감: {m['bid_deadline']}
-        섹션: {m['section_title']}
-        내용: {m['content']}
-        """
-
-        vector = embed_text(text, provider=EMBEDDING_PROVIDER)
-        collection = COLLECTION_MAP[EMBEDDING_PROVIDER]
-
-        points.append(
-            PointStruct(
-                id=i,           
-                vector=vector,
-                payload={
-                    "doc_id": m["doc_id"],
-                    "chunk_id": m["chunk_id"],
-                    "title": m["title"],
-                    "organization": m["organization"],
-                    "budget": m["budget"],
-                    "announcement_date": m["announcement_date"],
-                    "bid_start": m["bid_start"],
-                    "bid_deadline": m["bid_deadline"],
-                    "page_number": m["page_number"],
-                    "section_title": m["section_title"],
-                    "content": m["content"],
-                    "file_name": m["file_name"],
-                    "file_type": m["file_type"],
-                }
+            yield PointStruct(
+                id=point_id,
+                vector={
+                    "dense": dense_vector,
+                    "sparse": sparse_vector,
+                },
+                payload=m
             )
-        )
-
-    client.upsert(
-        collection_name=collection,
-        points=points
+    
+    client.upload_points(
+        collection_name=collection_name,
+        points=generate_points(),
+        batch_size=100, # Qdrant의 내장 배치 업로드 기능 사용
+        parallel=2 # 병렬 처리 워커 수
     )
 
-    print("ingestion 완료")
+    print(f"ingestion 완료 (컬렉션: {collection_name}, 모델: {embed_provider})")

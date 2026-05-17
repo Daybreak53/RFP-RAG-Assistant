@@ -14,52 +14,39 @@ from ragas.embeddings import LangchainEmbeddingsWrapper
 
 class RagasEvaluator:
     def __init__(self, model_name, metrics=None):
+        self.metrics = metrics or [
+            ContextPrecision(),
+            ContextRecall(),
+            Faithfulness(),
+            AnswerRelevancy(),
+        ]
+
         self.model_name = model_name
 
         try:
-            if self.model_name == "gpt-4o-mini":
+            if self.model_name == "gemini-3.1-flash-lite":
                 self.eval_llm = LangchainLLMWrapper(
-                    ChatOpenAI(model="gpt-4o-mini")
+                    ChatGoogleGenerativeAI(
+                        model="gemini-3.1-flash-lite", 
+                        n=1
+                    ),
+                    bypass_temperature=True
                 )
                 self.eval_embeddings = LangchainEmbeddingsWrapper(
-                    OpenAIEmbeddings(model="text-embedding-3-small")
+                    GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2")
                 )
-                
-            elif self.model_name == "gemini-3.1-flash-lite":
-                self.eval_llm = LangchainLLMWrapper(ChatGoogleGenerativeAI(
-                    model="gemini-3.1-flash-lite", 
-                    temperature=0,
-                    n=1
-                ))
+            elif self.model_name in ["gpt-4o-mini", "gpt-5-nano", "gpt-5-mini"] :
+                self.eval_llm = LangchainLLMWrapper(
+                    ChatOpenAI(model=model_name), 
+                    bypass_temperature=True
+                )
                 self.eval_embeddings = LangchainEmbeddingsWrapper(
-                    GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                )
-                
+                    OpenAIEmbeddings(model="text-embedding-3-small"))
             else:
                 raise ValueError(f"지원하지 않는 모델입니다: '{model_name}'")
         except Exception as e:
             print(f"[오류] LLM/Embeddings 초기화 실패. API 키를 확인해주세요: {e}")
             raise
-
-        if metrics is None:
-            context_precision = ContextPrecision()
-            context_recall = ContextRecall()
-            faithfulness = Faithfulness()
-            answer_relevancy = AnswerRelevancy()
-            
-            for m in [context_precision, context_recall, faithfulness, answer_relevancy]:
-                m.llm = self.eval_llm
-                if hasattr(m, "embeddings"):
-                    m.embeddings = self.eval_embeddings
-
-            self.metrics = [
-                context_precision,
-                context_recall,
-                faithfulness,
-                answer_relevancy,
-            ]
-        else:
-            self.metrics = metrics
 
     def run_evaluation(self, data_samples: dict):
         print("RAGAS 평가를 시작합니다...")
