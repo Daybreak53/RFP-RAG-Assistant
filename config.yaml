@@ -6,7 +6,7 @@ pipeline:
   run_eval: false      # 평가 실행 여부
 
 parsing:
-  chunk_mode: "recursive"   # "recursive" | "semantic" | "sentence"
+  chunk_mode: "semantic"   # "recursive" | "semantic" | "sentence"
   chunk_size: 500
   chunk_overlap: 50
 
