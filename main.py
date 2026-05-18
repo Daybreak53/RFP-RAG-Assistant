@@ -35,6 +35,11 @@ def main():
     parser.add_argument("--top_k", type=int, help="검색 결과 수 덮어쓰기")
     parser.add_argument("--score_threshold", type=float, help="유사도 임계값 덮어쓰기")
     parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/hybrid)")
+    parser.add_argument("--temperature", type=float, help="생성 temperature 덮어쓰기")
+    parser.add_argument("--max_tokens", type=int, help="생성 max_tokens 덮어쓰기")
+    parser.add_argument("--top_p", type=float, help="생성 top_p 덮어쓰기")
+    parser.add_argument("--frequency_penalty", type=float, help="생성 frequency_penalty 덮어쓰기")
+    parser.add_argument("--presence_penalty", type=float, help="생성 presence_penalty 덮어쓰기")
 
     args = parser.parse_args()
     
@@ -67,6 +72,15 @@ def main():
     top_k = args.top_k or config['retrieval'].get("top_k", 3)
     score_threshold = args.score_threshold or config['retrieval'].get("score_threshold", 0.2)
     search_mode = args.search_mode or config['retrieval'].get("search_mode", "vector")
+
+    gen_cfg = config.get("generation", {})
+    gen_params = {
+        "temperature":         args.temperature        if args.temperature        is not None else gen_cfg.get("temperature", 1.0),
+        "max_tokens":          args.max_tokens          if args.max_tokens          is not None else gen_cfg.get("max_tokens", 512),
+        "top_p":               args.top_p               if args.top_p               is not None else gen_cfg.get("top_p", 1.0),
+        "frequency_penalty":   args.frequency_penalty   if args.frequency_penalty   is not None else gen_cfg.get("frequency_penalty", 0.0),
+        "presence_penalty":    args.presence_penalty     if args.presence_penalty    is not None else gen_cfg.get("presence_penalty", 0.0),
+    }
     
     print(f"[설정] 임베딩: {embed_provider} | LLM: {llm_provider}\n")
 
@@ -86,7 +100,7 @@ def main():
             if not rag_data:
                 print("[경고] 파싱된 데이터가 없어 DB 적재를 수행할 수 없습니다.")
             else:
-                print(f"--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")
+                print(f"\n--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")
                 create_collection(
                     embed_provider=embed_provider, 
                     collection_name=collection_name
@@ -98,7 +112,7 @@ def main():
                 )
             
     if run_query and query_text:
-        print(f"--- [3] RAG 파이프라인 질의 시작 ---")
+        print(f"\n--- [3] RAG 파이프라인 질의 시작 ---")
         print(f"질의: {query_text}")
         
         result = rag_pipeline(
@@ -108,7 +122,8 @@ def main():
             query=query_text,
             top_k=top_k,
             score_threshold=score_threshold,
-            search_mode=search_mode
+            search_mode=search_mode,
+            gen_params=gen_params,
         )
         
         print("\n===== 답변 =====")
@@ -116,7 +131,7 @@ def main():
         print("===============\n")
         
         if run_eval:
-            print("--- [4] 평가 시작 ---")
+            print("\n--- [4] 평가 시작 ---")
             eval_config = config.get('evaluation', {})
             evaluate(
                 evaluation_data=[result],

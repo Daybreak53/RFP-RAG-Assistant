@@ -1,14 +1,23 @@
 from src.retrieval.retriever import retrieve
 from src.generation.gen import generate_answer
 
-def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str, top_k=3, score_threshold=0.2, search_mode="vector"):
-
+def rag_pipeline(
+    collection_name: str,
+    embed_provider: str,
+    llm_provider: str,
+    query: str,
+    top_k: int,
+    score_threshold: float,
+    search_mode: str,
+    gen_params: dict = None,
+):
     docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold)
 
     answer = generate_answer(
         query,
         docs,
-        provider=llm_provider
+        provider=llm_provider,
+        gen_params=gen_params,
     )
 
     return {

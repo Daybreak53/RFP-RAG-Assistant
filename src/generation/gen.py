@@ -13,7 +13,7 @@ def get_client():
         _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     return _client
 
-def generate_answer(query, docs, provider="local"):
+def generate_answer(query, docs, provider="local", gen_params: dict = None):
     #파일명을 답변에 사용할 수 있도록 메타데이터의 file_name 을 context 맨위로 추가
     context_list = []
     for i, d in enumerate(docs):
@@ -63,7 +63,7 @@ def generate_answer(query, docs, provider="local"):
             messages=[
                 {"role": "system", "content": "RFP 분석 전문가"},
                 {"role": "user", "content": prompt}
-            ]
+            ],
         )
         return res.choices[0].message.content
 
