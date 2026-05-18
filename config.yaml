@@ -9,6 +9,14 @@ parsing:
   chunk_mode: "recursive"   # "recursive" | "semantic" | "sentence"
   chunk_size: 500
   chunk_overlap: 50
+
+  semantic_threshold: 60
+  sem_rec_chunksize : 1200
+  sem_rec_overlap : 120
+
+  sentences_per_chunk: 3
+  sentence_overlap: 1
+
   match_threshold: 0.55
 
 collection_name:
