@@ -1,16 +1,27 @@
 import argparse
 import yaml
 from dotenv import load_dotenv
-from src.evaluation.evaluate import evaluate
-from src.vector_db.vectordb import create_collection
-from src.vector_db.ingest import ingest
 from src.generation.pipeline import rag_pipeline
-from src.parsing.run_parsing import run_parsing
 from src.generation.pipeline import find_reference_for_query, rag_pipeline
+from src.retrieval.filter_extractor import MetadataFilter
 
 def load_config(config_path="config.yaml"):
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+def _build_explicit_filter(args) -> MetadataFilter:
+    return MetadataFilter(
+        organization        = args.filter_org,
+        budget_min          = args.filter_budget_min,
+        budget_max          = args.filter_budget_max,
+        announcement_after  = args.filter_announce_after,
+        announcement_before = args.filter_announce_before,
+        bid_start_after     = args.filter_bid_start_after,
+        bid_deadline_before = args.filter_bid_deadline_before,
+        title_keyword       = args.filter_title,
+        doc_id              = args.filter_doc_id,
+    )
+
 
 def main():
     load_dotenv()
@@ -36,6 +47,19 @@ def main():
     parser.add_argument("--top_k", type=int, help="검색 결과 수 덮어쓰기")
     parser.add_argument("--score_threshold", type=float, help="유사도 임계값 덮어쓰기")
     parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/hybrid)")
+
+    # 메타데이터 필터 인자
+    filter_group = parser.add_argument_group("메타데이터 필터")
+    filter_group.add_argument("--filter_org", type=str, metavar="기관명")
+    filter_group.add_argument("--filter_budget_min", type=float, metavar="만원")
+    filter_group.add_argument("--filter_budget_max", type=float, metavar="만원")
+    filter_group.add_argument("--filter_announce_after", type=str, metavar="YYYY-MM-DD")
+    filter_group.add_argument("--filter_announce_before", type=str, metavar="YYYY-MM-DD")
+    filter_group.add_argument("--filter_bid_start_after", type=str, metavar="YYYY-MM-DD")
+    filter_group.add_argument("--filter_bid_deadline_before", type=str, metavar="YYYY-MM-DD")
+    filter_group.add_argument("--filter_title", type=str, metavar="키워드")
+    filter_group.add_argument("--filter_doc_id", type=str, metavar="공고번호")
+    filter_group.add_argument("--no_auto_filter", action="store_true")
 
     args = parser.parse_args()
     
@@ -68,6 +92,10 @@ def main():
     top_k = args.top_k or config['retrieval'].get("top_k", 3)
     score_threshold = args.score_threshold or config['retrieval'].get("score_threshold", 0.2)
     search_mode = args.search_mode or config['retrieval'].get("search_mode", "vector")
+
+    # 메타데이터 필터 설정
+    explicit_filter  = _build_explicit_filter(args)
+    auto_extract     = not args.no_auto_filter
     
     print(f"[설정] 임베딩: {embed_provider} | LLM: {llm_provider}\n")
 
@@ -125,7 +153,9 @@ def main():
             top_k=top_k,
             score_threshold=score_threshold,
             search_mode=search_mode,
-            reference=reference
+            reference=reference,
+            metadata_filter=explicit_filter,
+            auto_extract_filter=auto_extract,
         )
         
         print("\n===== 답변 =====")
