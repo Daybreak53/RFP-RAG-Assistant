@@ -1,7 +1,8 @@
 import json
 import re
 from pathlib import Path
-
+from typing import Optional
+from qdrant_client import models
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_DATASET_PATHS = (
@@ -53,21 +54,29 @@ def rag_pipeline(
     embed_provider: str,
     llm_provider: str,
     query: str,
-    top_k=3,
-    score_threshold=0.2,
-    search_mode="vector",
-    reference=None,
+    top_k: int = 3,
+    score_threshold: float = 0.2,
+    search_mode: str = "vector",
+    reference: Optional[str] = None,
+    metadata_filter=None,
+    auto_extract_filter: bool = True,
     run_eval=False,
     eval_model_name="gpt-4o-mini",
     eval_is_local=False
-    ):
-
+):
     from src.retrieval.retriever import retrieve
+    from src.retrieval.filter_extractor import resolve_filter
     from src.generation.gen import generate_answer
     from langfuse import get_client
 
 
     langfuse = get_client()
+
+    qdrant_filter = resolve_filter(
+        query=query,
+        explicit_filter=metadata_filter,
+        auto_extract=auto_extract_filter,
+    )
 
     with langfuse.start_as_current_observation(
         name="rag_pipeline",
@@ -79,7 +88,8 @@ def rag_pipeline(
             "llm_provider": llm_provider,
             "top_k": top_k,
             "score_threshold": score_threshold,
-            "search_mode": search_mode
+            "search_mode": search_mode,
+            "filter_applied": qdrant_filter is not None,
         }
     ) as pipeline_span:
 
@@ -92,11 +102,20 @@ def rag_pipeline(
                 "embed_provider": embed_provider,
                 "top_k": top_k,
                 "score_threshold": score_threshold,
-                "search_mode": search_mode
+                "search_mode": search_mode,
+                "filter_applied": qdrant_filter is not None,
             }
         ) as retrieval_span:
 
-            docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold, search_mode)
+            docs = retrieve(
+                collection_name=collection_name,
+                embed_provider=embed_provider,
+                query=query,
+                top_k=top_k,
+                score_threshold=score_threshold,
+                search_mode=search_mode,
+                query_filter=qdrant_filter,
+            )
 
             retrieval_span.update(output=docs)
 
