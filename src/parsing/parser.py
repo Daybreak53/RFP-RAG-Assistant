@@ -6,17 +6,20 @@ import os
 import pandas as pd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.parsing.meta_db import normalize_filename
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_experimental.text_splitter import SemanticChunker
+from langchain_core.documents import Document
+import re
 
+embedding = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small") #semantic chunking 용 임베딩 모델(경량화되어있음)
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50):
+def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50, semantic_threshold=90, sem_rec_chunksize=1200, sem_rec_overlap=120, sentences_per_chunk=3, sentence_overlap=1):
     if chunk_mode == "recursive":
         return recursive_chunk(documents, chunk_size, chunk_overlap)
     elif chunk_mode == "semantic":
-        return semantic_chunk(documents)
+        return semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap)
     elif chunk_mode == "sentence":
-        return sentence_chunk(documents)
+        return sentence_chunk(documents, sentences_per_chunk, sentence_overlap)
     else:
         raise ValueError(f"지원하지 않는 chunk_mode: '{chunk_mode}'")
 
@@ -27,13 +30,59 @@ def recursive_chunk(documents, chunk_size, chunk_overlap):
     )
     return splitter.split_documents(documents)
 
-def semantic_chunk(documents):
-    # TODO
-    raise NotImplementedError("시맨틱 청킹 구현 필요")
+#의미기반으로만 나누면 자꾸 OPENAI의 8192개 토큰을 넘어가버려 semantic + recursive 구조로 변경
+def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap):
 
-def sentence_chunk(documents):
-    # TODO
-    raise NotImplementedError("문장 단위 청킹 구현 필요")
+    splitter = SemanticChunker(
+        embedding,
+        breakpoint_threshold_type="percentile",
+        breakpoint_threshold_amount=semantic_threshold
+    )
+    semantic_chunks = splitter.split_documents(documents)
+
+    safe_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=sem_rec_chunksize,
+        chunk_overlap=sem_rec_overlap
+    )
+
+    final_chunks = []
+
+    for chunk in semantic_chunks:
+
+        if len(chunk.page_content) > 4000:
+            split_chunks = safe_splitter.split_documents([chunk])
+            final_chunks.extend(split_chunks)
+        else:
+            final_chunks.append(chunk)
+
+    return final_chunks
+
+
+def sentence_chunk(documents, sentences_per_chunk, sentence_overlap):
+    chunks = []
+    def simple_sentence_split(text):
+        sentences = re.split(r'(?<=[.!?。])\s+', text)
+
+        return [s.strip() for s in sentences if s.strip()]
+
+    for doc in documents:
+        text = doc.page_content
+
+        sentences = simple_sentence_split(text)
+
+        step = max(1, sentences_per_chunk - sentence_overlap) # 오버랩과 문장수가 동일해질 때 무한루프 방지
+        for i in range(0, len(sentences), step):
+            chunk_sentences = sentences[i:i+sentences_per_chunk]
+            if not chunk_sentences:
+                continue
+            chunk_text = " ".join(chunk_sentences)
+
+            if len(chunk_text) > 4000:
+                chunk_text = chunk_text[:4000]
+
+            chunks.append(Document(page_content=chunk_text, metadata=doc.metadata))
+
+    return chunks
 
 
 def chunk_size_experiment(documents, start=100, end=1000, step=100, overlap_ratio=0.1):
@@ -56,6 +105,108 @@ def chunk_size_experiment(documents, start=100, end=1000, step=100, overlap_rati
 
     return pd.DataFrame(results)
 
+#밑에 2개의 실험은 어디서 함수 적용하는지 모르겠어서 일단 만들어놨습니다.
+
+#semantic_chuink 기법 threshold 별 실험
+"""
+def semantic_chunk_experiment(
+    documents,
+    thresholds=[70, 80, 90, 95]
+):
+    results = []
+
+    for threshold in thresholds:
+
+        chunks = create_chunks(
+            documents,
+            chunk_mode="semantic",
+            semantic_threshold=threshold
+        )
+
+        chunk_lengths = [
+            len(chunk.page_content)
+            for chunk in chunks
+        ]
+
+        results.append({
+            "semantic_threshold": threshold,
+            "num_chunks": len(chunks),
+            "avg_chunk_length": (
+                sum(chunk_lengths) / len(chunk_lengths)
+                if chunk_lengths else 0
+            ),
+            "max_chunk_length": (
+                max(chunk_lengths)
+                if chunk_lengths else 0
+            ),
+            "min_chunk_length": (
+                min(chunk_lengths)
+                if chunk_lengths else 0
+            ),
+        })
+
+        print("=" * 50)
+        print("semantic_threshold:", threshold)
+        print("num_chunks:", len(chunks))
+        print("avg_chunk_length:", results[-1]["avg_chunk_length"])
+
+    return pd.DataFrame(results)
+"""
+
+#sentence_chunk 기법 사이즈, 오버랩 별 실험
+"""
+def sentence_chunk_experiment(
+    documents,
+    sentence_sizes=[3, 5, 7],
+    overlaps=[1, 2]
+):
+    results = []
+
+    for sentence_size in sentence_sizes:
+
+        for overlap in overlaps:
+
+            if overlap >= sentence_size:
+                continue
+
+            chunks = create_chunks(
+                documents,
+                chunk_mode="sentence",
+                sentences_per_chunk=sentence_size,
+                sentence_overlap=overlap
+            )
+
+            chunk_lengths = [
+                len(chunk.page_content)
+                for chunk in chunks
+            ]
+
+            results.append({
+                "sentences_per_chunk": sentence_size,
+                "sentence_overlap": overlap,
+                "num_chunks": len(chunks),
+                "avg_chunk_length": (
+                    sum(chunk_lengths) / len(chunk_lengths)
+                    if chunk_lengths else 0
+                ),
+                "max_chunk_length": (
+                    max(chunk_lengths)
+                    if chunk_lengths else 0
+                ),
+                "min_chunk_length": (
+                    min(chunk_lengths)
+                    if chunk_lengths else 0
+                ),
+            })
+
+            print("=" * 50)
+            print("sentences_per_chunk:", sentence_size)
+            print("sentence_overlap:", overlap)
+            print("num_chunks:", len(chunks))
+            print("avg_chunk_length:", results[-1]["avg_chunk_length"])
+
+    return pd.DataFrame(results)
+"""
 
 def convert_chunks_to_rag_format(chunks, metadata_map=None):
     rag_data = []
