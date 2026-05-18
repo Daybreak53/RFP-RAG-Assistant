@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.run_config import RunConfig
 
 class RagasEvaluator:
     def __init__(self, model_name, metrics=None):
@@ -52,13 +53,16 @@ class RagasEvaluator:
         print("RAGAS 평가를 시작합니다...")
         
         dataset = Dataset.from_dict(data_samples)
+
+        run_config = RunConfig(timeout=120.0, max_workers=3)
         
         result = evaluate(
             dataset=dataset,
             metrics=self.metrics,
             llm=self.eval_llm,
             embeddings=self.eval_embeddings,
-            raise_exceptions=False
+            raise_exceptions=False,
+            run_config=run_config
         )
         
         return result.to_pandas()

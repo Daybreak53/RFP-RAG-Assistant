@@ -31,8 +31,8 @@ retrieval:
   search_mode: "hybrid"    # "vector" | "keyword" | "hybrid"
 
 providers:
-  embedding: "openai"  # 임베딩 모델
-  llm: "openai"        # LLM 모델
+  embedding: "local"  # 임베딩 모델
+  llm: "local"        # LLM 모델
 
 embed_model_name:
   openai: "text-embedding-3-small"
