@@ -38,9 +38,7 @@ _SUFFIX = (
     r")"
 )
 
-# 기관명 전체 패턴: 순수 한글 2~20자 + suffix
-# (?<!\S) 는 직전이 공백·줄시작임을 보장 → 숫자나 단위 바로 뒤 매칭 방지
-_ORG_CORE = r"[가-힣]{2,20}" + _SUFFIX
+_ORG_CORE = r"[가-힣]{0,20}" + _SUFFIX
 
 _PAT_TRIGGER = re.compile(
     r"(?<!\S)"                                          # 앞이 공백/시작
@@ -66,48 +64,53 @@ def _extract_organization(text: str) -> Optional[str]:
     return None
 
 
-# 예산 추출
 _BUDGET_UNIT: dict[str, float] = {
-    "억":   10_000,
-    "천만": 1_000,
-    "백만": 100,
-    "만":   1,
+    "억":   100_000_000.0,
+    "천만": 10_000_000.0,
+    "백만": 1_000_000.0,
+    "만":   10_000.0,
 }
 
-
-def _unit_to_manwon(unit_str: str) -> float:
-    for key, val in _BUDGET_UNIT.items():
-        if key in unit_str:
-            return val
-    return 1.0
+def _parse_budget_string(text: str) -> float:
+    total = 0.0
+    matches = re.findall(r"(\d+(?:\.\d+)?)\s*([억천백만])", text)
+    for num_str, unit_str in matches:
+        if num_str and unit_str in _BUDGET_UNIT:
+            total += float(num_str) * _BUDGET_UNIT[unit_str]
+    return total if total > 0 else 0.0
 
 
 def _extract_budget(text: str) -> tuple[Optional[float], Optional[float]]:
     budget_min = budget_max = None
+    
+    # 1개 이상의 숫자+단위 조합을 잡는 패턴 (예: "1억 5천만", "500만")
+    money_pat = r"((?:\d+(?:\.\d+)?\s*[억천백만]\s*)+)"
 
-    m = re.search(
-        r"(\d+(?:\.\d+)?)\s*([억천백만]+)\s*(?:~|에서|부터|∼)\s*(\d+(?:\.\d+)?)\s*([억천백만]+)",
-        text
-    )
+    # A ~ B 
+    m = re.search(f"{money_pat}\\s*(?:~|에서|부터|∼)\\s*{money_pat}", text)
     if m:
-        v1 = float(m.group(1)) * _unit_to_manwon(m.group(2))
-        v2 = float(m.group(3)) * _unit_to_manwon(m.group(4))
-        return min(v1, v2), max(v1, v2)
+        v1 = _parse_budget_string(m.group(1))
+        v2 = _parse_budget_string(m.group(2))
+        if v1 and v2:
+            return min(v1, v2), max(v1, v2)
 
-    m = re.search(r"(\d+(?:\.\d+)?)\s*([억천백만]+)\s*(?:이상|초과|넘는)", text)
+    # 이상 / 초과
+    m = re.search(f"{money_pat}\\s*(?:이상|초과|넘는)", text)
     if m:
-        budget_min = float(m.group(1)) * _unit_to_manwon(m.group(2))
+        val = _parse_budget_string(m.group(1))
+        if val: budget_min = val
 
-    m = re.search(r"(\d+(?:\.\d+)?)\s*([억천백만]+)\s*(?:이하|미만|이내)", text)
+    # 이하 / 미만 / 이내
+    m = re.search(f"{money_pat}\\s*(?:이하|미만|이내)", text)
     if m:
-        budget_max = float(m.group(1)) * _unit_to_manwon(m.group(2))
+        val = _parse_budget_string(m.group(1))
+        if val: budget_max = val
 
     return budget_min, budget_max
 
 
-# 날짜 추출
 def _extract_date(text: str, keywords: list[str]) -> Optional[str]:
-    date_pat = re.compile(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})")
+    date_pat = re.compile(r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*[일]?")
     for kw in keywords:
         idx = text.find(kw)
         if idx == -1:
@@ -126,9 +129,15 @@ def extract_filters_from_query(query: str) -> MetadataFilter:
     flt.organization               = _extract_organization(query)
     flt.budget_min, flt.budget_max = _extract_budget(query)
     flt.announcement_after         = _extract_date(query, ["공고일", "공개일", "공고 이후"])
-    flt.bid_deadline_before        = _extract_date(query, ["마감", "마감일", "입찰 마감"])
+    flt.bid_deadline_before        = _extract_date(query, ["마감", "마감일", "입찰 마감", "기한"])
     flt.bid_start_after            = _extract_date(query, ["입찰 시작", "시작일", "접수 시작"])
     return flt
+
+
+def _to_end_of_day(date_str: Optional[str]) -> Optional[str]:
+    if date_str and len(date_str) == 10:  # "YYYY-MM-DD" 형태인 경우
+        return f"{date_str} 23:59:59"
+    return date_str
 
 
 # MetadataFilter → Qdrant Filter 변환
@@ -153,7 +162,10 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
     if flt.announcement_after or flt.announcement_before:
         must.append(models.FieldCondition(
             key="announcement_date",
-            range=models.Range(gte=flt.announcement_after, lte=flt.announcement_before),
+            range=models.Range(
+                gte=flt.announcement_after, 
+                lte=_to_end_of_day(flt.announcement_before)
+            ),
         ))
 
     if flt.bid_start_after:
@@ -165,7 +177,7 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
     if flt.bid_deadline_before:
         must.append(models.FieldCondition(
             key="bid_deadline",
-            range=models.Range(lte=flt.bid_deadline_before),
+            range=models.Range(lte=_to_end_of_day(flt.bid_deadline_before)),
         ))
 
     if flt.title_keyword:
