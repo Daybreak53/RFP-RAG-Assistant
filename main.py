@@ -159,7 +159,12 @@ def main():
 
         print(f"--- [3] RAG 파이프라인 질의 시작 ---")
         print(f"질의: {query_text}")
+
+        if run_eval:
+            print("--- [4] 평가 시작 ---")
         
+        eval_config = config.get('evaluation', {})
+
         result = rag_pipeline(
             collection_name=collection_name,
             embed_provider=embed_provider,
@@ -171,22 +176,20 @@ def main():
             reference=reference,
             metadata_filter=explicit_filter,
             auto_extract_filter=auto_extract,
+            run_eval=run_eval,
+            eval_model_name=eval_config.get('model_name', 'gpt-5-nano'),
+            eval_is_local=eval_config.get('is_local', False),
         )
         
         print("\n===== 답변 =====")
         print(result["response"])
         print("===============\n")
-        
-        if run_eval:
-            from src.evaluation.evaluate import evaluate
 
-            print("--- [4] 평가 시작 ---")
-            eval_config = config.get('evaluation', {})
-            evaluate(
-                evaluation_data=[result],
-                model_name=eval_config.get('model_name', 'gpt-5-nano'),
-                is_local=eval_config.get('is_local', False)
-            )
+        if run_eval and "evaluation" in result:
+            print("===== 평가 결과 =====")
+            print(result["evaluation"])
+            print("====================\n")
+        
 
 if __name__ == "__main__":
     main()
