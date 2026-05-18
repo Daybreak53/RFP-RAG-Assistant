@@ -60,11 +60,15 @@ def rag_pipeline(
     reference: Optional[str] = None,
     metadata_filter=None,
     auto_extract_filter: bool = True,
+    run_eval=False,
+    eval_model_name="gpt-4o-mini",
+    eval_is_local=False
 ):
     from src.retrieval.retriever import retrieve
     from src.retrieval.filter_extractor import resolve_filter
     from src.generation.gen import generate_answer
     from langfuse import get_client
+
 
     langfuse = get_client()
 
@@ -139,6 +143,27 @@ def rag_pipeline(
             "retrieved_context": [d.get("content", "") for d in docs],
             "reference": reference if reference is not None else find_reference_for_query(query)
         }
+
+        if run_eval:
+            from src.evaluation.evaluate import evaluate
+
+            with langfuse.start_as_current_observation(
+                name="ragas_evaluation",
+                as_type="span",
+                input=result
+            ) as eval_span:
+
+                eval_output = evaluate(
+                    evaluation_data=[result],
+                    model_name=eval_model_name,
+                    is_local=eval_is_local
+                )
+
+                eval_result = eval_output.to_dict(orient="records")
+
+                eval_span.update(output=eval_result)
+
+                result["evaluation"] = eval_result
 
         pipeline_span.update(output=result)
 
