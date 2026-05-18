@@ -48,10 +48,24 @@ def find_reference_for_query(query):
     return ""
 
 
-def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str, top_k=3, score_threshold=0.2, search_mode="vector", reference=None):
+def rag_pipeline(
+    collection_name: str,
+    embed_provider: str,
+    llm_provider: str,
+    query: str,
+    top_k=3,
+    score_threshold=0.2,
+    search_mode="vector",
+    reference=None,
+    run_eval=False,
+    eval_model_name="gpt-4o-mini",
+    eval_is_local=False
+    ):
+
     from src.retrieval.retriever import retrieve
     from src.generation.gen import generate_answer
     from langfuse import get_client
+
 
     langfuse = get_client()
 
@@ -110,6 +124,27 @@ def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, q
             "retrieved_context": [d.get("content", "") for d in docs],
             "reference": reference if reference is not None else find_reference_for_query(query)
         }
+
+        if run_eval:
+            from src.evaluation.evaluate import evaluate
+
+            with langfuse.start_as_current_observation(
+                name="ragas_evaluation",
+                as_type="span",
+                input=result
+            ) as eval_span:
+
+                eval_output = evaluate(
+                    evaluation_data=[result],
+                    model_name=eval_model_name,
+                    is_local=eval_is_local
+                )
+
+                eval_result = eval_output.to_dict(orient="records")
+
+                eval_span.update(output=eval_result)
+
+                result["evaluation"] = eval_result
 
         pipeline_span.update(output=result)
 
