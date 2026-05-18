@@ -67,8 +67,9 @@ def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, q
             "score_threshold": score_threshold,
             "search_mode": search_mode
         }
-    )as pipeline_span:
-         with langfuse.start_as_current_observation(
+    ) as pipeline_span:
+
+        with langfuse.start_as_current_observation(
             name="retrieval",
             as_type="span",
             input={
@@ -110,37 +111,8 @@ def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, q
             "reference": reference if reference is not None else find_reference_for_query(query)
         }
 
-    docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold, search_mode)
-    """
-    retrieval_span.end(
-        output=docs
-    )
-
-    generation = trace.generation(
-        name="answer_generation",
-        model=llm_provider,
-        input={
-            "query": query,
-            "retrieved_docs": docs
-        }
-    )
-    """
-    answer = generate_answer(
-        query,
-        docs,
-        provider=llm_provider
-    )
-    """
-    generation.end(
-        output=answer
-    )
+        pipeline_span.update(output=result)
 
     langfuse.flush()
-    """
 
-    return {
-        "user_input": query,
-        "response": answer,
-        "retrieved_context": [d.get("content", "") for d in docs],
-        "reference": reference if reference is not None else find_reference_for_query(query)
-    }
+    return result
