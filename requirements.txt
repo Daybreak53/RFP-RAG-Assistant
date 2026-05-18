@@ -15,4 +15,3 @@ langchain-google-genai
 sentence-transformers
 olefile
 kiwipiepy
-kss
