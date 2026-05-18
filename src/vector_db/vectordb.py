@@ -16,9 +16,9 @@ _PAYLOAD_INDEXES: list[tuple[str, models.PayloadSchemaType]] = [
     ("doc_id",             models.PayloadSchemaType.KEYWORD),
     ("file_type",          models.PayloadSchemaType.KEYWORD),
     ("budget",             models.PayloadSchemaType.FLOAT),
-    ("announcement_date",  models.PayloadSchemaType.KEYWORD),
-    ("bid_start",          models.PayloadSchemaType.KEYWORD),
-    ("bid_deadline",       models.PayloadSchemaType.KEYWORD),
+    ("announcement_date",  models.PayloadSchemaType.DATETIME),
+    ("bid_start",          models.PayloadSchemaType.DATETIME),
+    ("bid_deadline",       models.PayloadSchemaType.DATETIME),
 ]
 
 def create_collection(embed_provider, collection_name):

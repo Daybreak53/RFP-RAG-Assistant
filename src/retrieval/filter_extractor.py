@@ -115,7 +115,7 @@ def _extract_date(text: str, keywords: list[str]) -> Optional[str]:
         idx = text.find(kw)
         if idx == -1:
             continue
-        snippet = text[max(0, idx - 10): idx + 50]
+        snippet = text[max(0, idx - 40): idx + 50]
         m = date_pat.search(snippet)
         if m:
             y, mo, d = m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
@@ -162,7 +162,7 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
     if flt.announcement_after or flt.announcement_before:
         must.append(models.FieldCondition(
             key="announcement_date",
-            range=models.Range(
+            range=models.DatetimeRange(
                 gte=flt.announcement_after, 
                 lte=_to_end_of_day(flt.announcement_before)
             ),
@@ -171,13 +171,13 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
     if flt.bid_start_after:
         must.append(models.FieldCondition(
             key="bid_start",
-            range=models.Range(gte=flt.bid_start_after),
+            range=models.DatetimeRange(gte=flt.bid_start_after),
         ))
 
     if flt.bid_deadline_before:
         must.append(models.FieldCondition(
             key="bid_deadline",
-            range=models.Range(lte=_to_end_of_day(flt.bid_deadline_before)),
+            range=models.DatetimeRange(lte=_to_end_of_day(flt.bid_deadline_before)),
         ))
 
     if flt.title_keyword:
