@@ -7,7 +7,7 @@ from src.parsing.parser import (
     convert_chunks_to_rag_format,
 )
 
-def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, semantic_threshold=None, sentences_per_chunk=None, sentence_overlap=None, match_threshold=None, ):
+def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, semantic_threshold=None, sem_rec_chunksize=None, sem_rec_overlap=None, sentences_per_chunk=None, sentence_overlap=None, match_threshold=None, ):
     data_dir = "data"
     csv_path = "data/data_list.csv"
 
@@ -32,11 +32,12 @@ def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, semantic_t
         chunk_overlap=chunk_overlap,
         
         semantic_threshold=semantic_threshold,
+        sem_rec_chunksize=sem_rec_chunksize,
+        sem_rec_overlap=sem_rec_overlap,
 
         sentences_per_chunk=sentences_per_chunk,
-        sentence_overlap=sentence_overlap,
+        sentence_overlap=sentence_overlap
     )
-
     rag_data = convert_chunks_to_rag_format(chunks, metadata_map=metadata_map)
 
     print(f"파싱 완료: {len(rag_data)}개 청크 생성됨")

@@ -51,14 +51,92 @@ def find_reference_for_query(query):
 def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str, top_k=3, score_threshold=0.2, search_mode="vector", reference=None):
     from src.retrieval.retriever import retrieve
     from src.generation.gen import generate_answer
+    from langfuse import get_client
+
+    langfuse = get_client()
+
+    with langfuse.start_as_current_observation(
+        name="rag_pipeline",
+        as_type="span",
+        input=query,
+        metadata={
+            "collection_name": collection_name,
+            "embed_provider": embed_provider,
+            "llm_provider": llm_provider,
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+            "search_mode": search_mode
+        }
+    )as pipeline_span:
+         with langfuse.start_as_current_observation(
+            name="retrieval",
+            as_type="span",
+            input={
+                "query": query,
+                "collection_name": collection_name,
+                "embed_provider": embed_provider,
+                "top_k": top_k,
+                "score_threshold": score_threshold,
+                "search_mode": search_mode
+            }
+        ) as retrieval_span:
+
+            docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold, search_mode)
+
+            retrieval_span.update(output=docs)
+
+        with langfuse.start_as_current_observation(
+            name="answer_generation",
+            as_type="generation",
+            model=llm_provider,
+            input={
+                "query": query,
+                "retrieved_docs": docs
+            }
+        ) as generation:
+
+            answer = generate_answer(
+                query,
+                docs,
+                provider=llm_provider
+            )
+
+            generation.update(output=answer)
+
+        result = {
+            "user_input": query,
+            "response": answer,
+            "retrieved_context": [d.get("content", "") for d in docs],
+            "reference": reference if reference is not None else find_reference_for_query(query)
+        }
 
     docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold, search_mode)
+    """
+    retrieval_span.end(
+        output=docs
+    )
 
+    generation = trace.generation(
+        name="answer_generation",
+        model=llm_provider,
+        input={
+            "query": query,
+            "retrieved_docs": docs
+        }
+    )
+    """
     answer = generate_answer(
         query,
         docs,
         provider=llm_provider
     )
+    """
+    generation.end(
+        output=answer
+    )
+
+    langfuse.flush()
+    """
 
     return {
         "user_input": query,

@@ -31,8 +31,10 @@ def main():
     parser.add_argument("--chunk_size", type=int, help="청크 크기 덮어쓰기")
     parser.add_argument("--chunk_overlap", type=int, help="청크 오버랩 덮어쓰기")
     parser.add_argument("--semantic_threshold",type=int,help="시멘틱 청크 threshold 덮어쓰기")
-    parser.add_argument("--sentences_per_chunk",type=int,help="sentence 청크 문장 갯수 덮어쓰기")
-    parser.add_argument("--sentence_overlap",type=int,help="Sentence 청크 오버랩 덮어쓰기")
+    parser.add_argument("--sem_rec_chunksize",type=int,help="시멘틱 청크 크기 덮어쓰기")
+    parser.add_argument("--sem_rec_overlap",type=int,help="시멘틱 청크 오버랩 덮어쓰기")
+    parser.add_argument("--sentences_per_chunk",type=int,help="문장 청크 문장 갯수 덮어쓰기")
+    parser.add_argument("--sentence_overlap",type=int,help="문장 청크 오버랩 덮어쓰기")
     parser.add_argument("--match_threshold", type=float, help="match threshold 덮어쓰기")
     parser.add_argument("--embed_provider", type=str, help="임베딩 모델 덮어쓰기")
     parser.add_argument("--llm_provider", type=str, help="LLM 모델 덮어쓰기")
@@ -64,8 +66,10 @@ def main():
     chunk_mode = args.chunk_mode or config['parsing'].get("chunk_mode", "recursive")
     chunk_size = args.chunk_size or config['parsing'].get("chunk_size", 500)
     chunk_overlap = args.chunk_overlap or config['parsing'].get("chunk_overlap", 50)
-    semantic_threshold = args.semantic_threshold or config['parsing'].get("semantic_threshold", 90)
-    sentences_per_chunk = args.sentences_per_chunk or config['parsing'].get("sentences_per_chunk", 5)
+    semantic_threshold = args.semantic_threshold or config['parsing'].get("semantic_threshold", 80)
+    sem_rec_chunksize = args.sem_rec_chunksize or config['parsing'].get("sem_rec_chunksize", 1200)
+    sem_rec_overlap = args.sem_rec_overlap or config['parsing'].get("sem_rec_overlap", 120)
+    sentences_per_chunk = args.sentences_per_chunk or config['parsing'].get("sentences_per_chunk", 3)
     sentence_overlap = args.sentence_overlap or config['parsing'].get("sentence_overlap", 1)
     match_threshold = args.match_threshold or config['parsing'].get("match_threshold", 0.55)
     embed_provider = args.embed_provider or config['providers'].get('embedding', 'openai')
@@ -89,6 +93,8 @@ def main():
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 semantic_threshold=semantic_threshold,
+                sem_rec_chunksize=sem_rec_chunksize,
+                sem_rec_overlap=sem_rec_overlap,
                 sentences_per_chunk=sentences_per_chunk,
                 sentence_overlap=sentence_overlap,
                 match_threshold=match_threshold

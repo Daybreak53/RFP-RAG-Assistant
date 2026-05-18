@@ -13,11 +13,11 @@ import re
 
 embedding = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small") #semantic chunking 용 임베딩 모델(경량화되어있음)
 
-def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50, semantic_threshold=90, sentences_per_chunk=3, sentence_overlap=1):
+def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50, semantic_threshold=90, sem_rec_chunksize=1200, sem_rec_overlap=120, sentences_per_chunk=3, sentence_overlap=1):
     if chunk_mode == "recursive":
         return recursive_chunk(documents, chunk_size, chunk_overlap)
     elif chunk_mode == "semantic":
-        return semantic_chunk(documents, semantic_threshold)
+        return semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap)
     elif chunk_mode == "sentence":
         return sentence_chunk(documents, sentences_per_chunk, sentence_overlap)
     else:
@@ -30,14 +30,32 @@ def recursive_chunk(documents, chunk_size, chunk_overlap):
     )
     return splitter.split_documents(documents)
 
-def semantic_chunk(documents, semantic_threshold):
+#의미기반으로만 나누면 자꾸 OPENAI의 8192개 토큰을 넘어가버려 semantic + recursive 구조로 변경
+def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap):
 
     splitter = SemanticChunker(
         embedding,
         breakpoint_threshold_type="percentile",
         breakpoint_threshold_amount=semantic_threshold
     )
-    return splitter.split_documents(documents)
+    semantic_chunks = splitter.split_documents(documents)
+
+    safe_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=sem_rec_chunksize,
+        chunk_overlap=sem_rec_overlap
+    )
+
+    final_chunks = []
+
+    for chunk in semantic_chunks:
+
+        if len(chunk.page_content) > 4000:
+            split_chunks = safe_splitter.split_documents([chunk])
+            final_chunks.extend(split_chunks)
+        else:
+            final_chunks.append(chunk)
+
+    return final_chunks
 
 
 def sentence_chunk(documents, sentences_per_chunk, sentence_overlap):
