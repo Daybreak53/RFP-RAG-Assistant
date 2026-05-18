@@ -51,14 +51,61 @@ def find_reference_for_query(query):
 def rag_pipeline(collection_name: str, embed_provider: str, llm_provider: str, query: str, top_k=3, score_threshold=0.2, search_mode="vector", reference=None):
     from src.retrieval.retriever import retrieve
     from src.generation.gen import generate_answer
+    from langfuse import get_client
+
+    langfuse = get_client()
+
+    trace = langfuse.trace(
+        name="rag_pipeline",
+        input=query,
+        metadata={
+            "collection_name": collection_name,
+            "embed_provider": embed_provider,
+            "llm_provider": llm_provider,
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+            "search_mode": search_mode
+        }
+    )
+
+    retrieval_span = trace.span(
+        name="retrieval",
+        input={
+            "query": query,
+            "collection_name": collection_name,
+            "embed_provider": embed_provider,
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+            "search_mode": search_mode
+        }
+    )
 
     docs = retrieve(collection_name, embed_provider, query, top_k, score_threshold, search_mode)
+
+    retrieval_span.end(
+        output=docs
+    )
+
+    generation = trace.generation(
+        name="answer_generation",
+        model=llm_provider,
+        input={
+            "query": query,
+            "retrieved_docs": docs
+        }
+    )
 
     answer = generate_answer(
         query,
         docs,
         provider=llm_provider
     )
+
+    generation.end(
+        output=answer
+    )
+
+    langfuse.flush()
 
     return {
         "user_input": query,
