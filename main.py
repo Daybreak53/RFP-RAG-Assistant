@@ -186,8 +186,13 @@ def main():
         print("===============\n")
 
         if run_eval and "evaluation" in result:
+            eval_result = result["evaluation"][0]
+
             print("===== 평가 결과 =====")
-            print(result["evaluation"])
+            print(f"Faithfulness      : {eval_result.get('faithfulness')}")
+            print(f"Answer Relevancy  : {eval_result.get('answer_relevancy')}")
+            print(f"Context Precision : {eval_result.get('context_precision')}")
+            print(f"Context Recall    : {eval_result.get('context_recall')}")
             print("====================\n")
         
 
