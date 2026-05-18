@@ -6,6 +6,7 @@ from src.vector_db.vectordb import create_collection
 from src.vector_db.ingest import ingest
 from src.generation.pipeline import rag_pipeline
 from src.parsing.run_parsing import run_parsing
+from src.generation.pipeline import find_reference_for_query, rag_pipeline
 
 def load_config(config_path="config.yaml"):
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -88,6 +89,8 @@ def main():
     if run_parse or run_ingest:
         rag_data = None
         if run_parse:
+            from src.parsing.run_parsing import run_parsing
+
             print("--- [1] 문서 파싱 시작 ---")
             rag_data = run_parsing(
                 chunk_mode=chunk_mode,
@@ -100,7 +103,10 @@ def main():
             if not rag_data:
                 print("[경고] 파싱된 데이터가 없어 DB 적재를 수행할 수 없습니다.")
             else:
-                print(f"\n--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")
+                from src.vector_db.ingest import ingest
+                from src.vector_db.vectordb import create_collection
+
+                print(f"--- [2] 벡터 DB 생성 및 데이터 삽입 시작 ({embed_provider}) ---")
                 create_collection(
                     embed_provider=embed_provider, 
                     collection_name=collection_name
@@ -112,7 +118,17 @@ def main():
                 )
             
     if run_query and query_text:
-        print(f"\n--- [3] RAG 파이프라인 질의 시작 ---")
+        reference = None
+        if run_eval:
+            reference = find_reference_for_query(query_text)
+            if not reference:
+                raise SystemExit(
+                    "[평가 오류] --eval은 data/eval_dataset_hwp.json 또는 "
+                    "data/eval_dataset_pdf.json의 user_input과 매칭되는 질의에서만 사용할 수 있습니다.\n"
+                    f"현재 질의: {query_text}"
+                )
+
+        print(f"--- [3] RAG 파이프라인 질의 시작 ---")
         print(f"질의: {query_text}")
         
         result = rag_pipeline(
@@ -124,6 +140,7 @@ def main():
             score_threshold=score_threshold,
             search_mode=search_mode,
             gen_params=gen_params,
+            reference=reference
         )
         
         print("\n===== 답변 =====")
@@ -131,7 +148,9 @@ def main():
         print("===============\n")
         
         if run_eval:
-            print("\n--- [4] 평가 시작 ---")
+            from src.evaluation.evaluate import evaluate
+
+            print("--- [4] 평가 시작 ---")
             eval_config = config.get('evaluation', {})
             evaluate(
                 evaluation_data=[result],
