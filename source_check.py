@@ -8,9 +8,6 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
 
-
-DEFAULT_CHUNKS_PATH = Path("data/rag_chunks_no_embed.json")
-
 # This command must not consume GPU memory. These environment flags are set
 # before project imports so incidental ML library imports stay on CPU/silent.
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
@@ -153,29 +150,61 @@ def load_chunks(path: Path) -> list[dict[str, Any]]:
     return [flatten_chunk(item) for item in raw]
 
 
-def build_chunks(output_path: Path, chunk_mode: str) -> None:
-    if chunk_mode == "semantic":
-        raise SystemExit("semantic chunking uses an embedding model. Use recursive or sentence.")
+def load_config(path: Path) -> dict[str, Any]:
+    import yaml
 
-    from src.parsing.run_parsing import run_parsing
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
-    rag_data = run_parsing(
-        chunk_mode=chunk_mode,
-        chunk_size=500,
-        chunk_overlap=50,
-        semantic_threshold=60,
-        sem_rec_chunksize=1200,
-        sem_rec_overlap=120,
-        sentences_per_chunk=3,
-        sentence_overlap=1,
-        match_threshold=0.55,
-    )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as f:
-        json.dump(rag_data, f, ensure_ascii=False, indent=2)
+def resolve_collection_name(config_path: Path, collection_name: str | None, embed_provider: str | None) -> str:
+    if collection_name:
+        return collection_name
 
-    print(f"saved_chunks={len(rag_data)} path={output_path}")
+    config = load_config(config_path)
+    provider = embed_provider or config.get("providers", {}).get("embedding")
+    collections = config.get("collection_name", {})
+
+    if provider and provider in collections:
+        return collections[provider]
+
+    if collections:
+        return next(iter(collections.values()))
+
+    raise SystemExit("컬렉션명을 찾을 수 없습니다. --collection 또는 config.yaml의 collection_name을 설정하세요.")
+
+
+def load_chunks_from_db(collection_name: str, batch_size: int, limit: int | None = None) -> list[dict[str, Any]]:
+    from src.vector_db.vectordb import client
+
+    chunks: list[dict[str, Any]] = []
+    offset = None
+
+    while True:
+        request_limit = batch_size
+        if limit is not None:
+            remaining = limit - len(chunks)
+            if remaining <= 0:
+                break
+            request_limit = min(request_limit, remaining)
+
+        records, offset = client.scroll(
+            collection_name=collection_name,
+            limit=request_limit,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        for record in records:
+            payload = dict(record.payload or {})
+            payload.setdefault("point_id", str(record.id))
+            chunks.append(flatten_chunk(payload))
+
+        if offset is None or not records:
+            break
+
+    return chunks
 
 
 def find_pages(answer: str) -> list[int]:
@@ -500,33 +529,46 @@ def read_answer(args: argparse.Namespace) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Verify answer citations without running embedding models."
+        description="Verify answer citations from Qdrant payloads without DB conversion."
     )
-    parser.add_argument("--build-index", action="store_true", help="Parse documents into JSON chunks.")
-    parser.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS_PATH)
-    parser.add_argument("--chunk-mode", default="recursive", choices=["recursive", "sentence"])
+    parser.add_argument("--config", type=Path, default=Path("config.yaml"))
+    parser.add_argument("--collection", type=str, help="Qdrant 컬렉션명. 생략하면 config.yaml에서 읽습니다.")
+    parser.add_argument("--embed-provider", type=str, help="config.yaml의 collection_name 선택용 provider.")
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--limit", type=int, help="DB에서 읽을 최대 point 수. 디버깅용입니다.")
+    parser.add_argument("--chunks", type=Path, help="선택 사항: DB 대신 기존 JSON 청크 파일을 읽습니다.")
     parser.add_argument("--answer", type=str)
     parser.add_argument("--answer-file", type=str)
-    parser.add_argument("--output", type=Path)
     parser.add_argument("--fallback-top-k", type=int, default=5)
 
     args = parser.parse_args()
 
-    if args.build_index:
-        build_chunks(args.chunks, args.chunk_mode)
-        return
+    if args.chunks:
+        chunks = load_chunks(args.chunks)
+        source_label = f"json:{args.chunks}"
+    else:
+        collection_name = resolve_collection_name(
+            config_path=args.config,
+            collection_name=args.collection,
+            embed_provider=args.embed_provider,
+        )
+        chunks = load_chunks_from_db(
+            collection_name=collection_name,
+            batch_size=args.batch_size,
+            limit=args.limit,
+        )
+        source_label = f"qdrant:{collection_name}"
 
-    chunks = load_chunks(args.chunks)
+    if not chunks:
+        raise SystemExit(f"검증할 청크를 찾을 수 없습니다. source={source_label}")
+
     answer = read_answer(args)
     result = verify_answer(answer, chunks, args.fallback_top_k)
+    result["source"] = source_label
+    result["chunk_count"] = len(chunks)
 
     result_json = json.dumps(result, ensure_ascii=False, indent=2)
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(result_json + "\n", encoding="utf-8")
-        print(f"saved_result={args.output}")
-    else:
-        print(result_json)
+    print(result_json)
 
 
 if __name__ == "__main__":
