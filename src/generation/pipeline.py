@@ -2,7 +2,6 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
-from qdrant_client import models
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_DATASET_PATHS = (
@@ -144,26 +143,29 @@ def rag_pipeline(
             "reference": reference if reference is not None else find_reference_for_query(query)
         }
 
+        print("\n===== 답변 =====")
+        print(answer)
+        print("===============\n")
+
         if run_eval:
             from src.evaluation.evaluate import evaluate
 
+            print("--- [4] 평가 시작 ---")
+
             with langfuse.start_as_current_observation(
                 name="ragas_evaluation",
-                as_type="span",
+                as_type="generation",
+                model=eval_model_name,
                 input=result
-            ) as eval_span:
+            ) as generation:
 
-                eval_output = evaluate(
+                evaluate(
                     evaluation_data=[result],
                     model_name=eval_model_name,
-                    is_local=eval_is_local
+                    is_local=eval_is_local,
+                    langfuse=langfuse,
+                    generation=generation
                 )
-
-                eval_result = eval_output.to_dict(orient="records")
-
-                eval_span.update(output=eval_result)
-
-                result["evaluation"] = eval_result
 
         pipeline_span.update(output=result)
 

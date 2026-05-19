@@ -159,9 +159,6 @@ def main():
 
         print(f"--- [3] RAG 파이프라인 질의 시작 ---")
         print(f"질의: {query_text}")
-
-        if run_eval:
-            print("--- [4] 평가 시작 ---")
         
         eval_config = config.get('evaluation', {})
 
@@ -180,21 +177,6 @@ def main():
             eval_model_name=eval_config.get('model_name', 'gpt-5-nano'),
             eval_is_local=eval_config.get('is_local', False),
         )
-        
-        print("\n===== 답변 =====")
-        print(result["response"])
-        print("===============\n")
-
-        if run_eval and "evaluation" in result:
-            eval_result = result["evaluation"][0]
-
-            print("===== 평가 결과 =====")
-            print(f"Faithfulness      : {eval_result.get('faithfulness')}")
-            print(f"Answer Relevancy  : {eval_result.get('answer_relevancy')}")
-            print(f"Context Precision : {eval_result.get('context_precision')}")
-            print(f"Context Recall    : {eval_result.get('context_recall')}")
-            print("====================\n")
-        
 
 if __name__ == "__main__":
     main()
