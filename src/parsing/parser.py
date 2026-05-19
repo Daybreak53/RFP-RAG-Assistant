@@ -60,15 +60,9 @@ def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_ove
 
 def sentence_chunk(documents, sentences_per_chunk, sentence_overlap):
     chunks = []
-    def simple_sentence_split(text):
-        sentences = re.split(r'(?<=[.!?。])\s+', text)
-
-        return [s.strip() for s in sentences if s.strip()]
 
     for doc in documents:
-        text = doc.page_content
-
-        sentences = simple_sentence_split(text)
+        sentences = doc.page_content
 
         step = max(1, sentences_per_chunk - sentence_overlap) # 오버랩과 문장수가 동일해질 때 무한루프 방지
         for i in range(0, len(sentences), step):
