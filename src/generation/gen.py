@@ -1,6 +1,7 @@
 import requests
 from openai import OpenAI
 import os
+import re
 from dotenv import load_dotenv
 from src.parsing.meta_db import resolve_source_filename
 
@@ -13,6 +14,34 @@ def get_client():
     if _client is None:
         _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     return _client
+
+
+def _unique_source_files(docs):
+    source_files = []
+    seen = set()
+
+    for doc in docs:
+        file_name = resolve_source_filename(doc.get("file_name", ""))
+        if not file_name or file_name in seen:
+            continue
+        seen.add(file_name)
+        source_files.append(file_name)
+
+    return source_files
+
+
+def _strip_llm_source_section(answer):
+    pattern = r"\n*\*{0,2}출처\s*상세\*{0,2}\s*\n.*$"
+    return re.sub(pattern, "", answer.strip(), flags=re.DOTALL)
+
+
+def _append_source_files(answer, docs):
+    source_files = _unique_source_files(docs)
+    if not source_files:
+        return answer
+
+    source_block = "\n".join(f"- {file_name}" for file_name in source_files)
+    return f"{_strip_llm_source_section(answer)}\n\n**출처 파일**\n{source_block}"
 
 def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8b"):
     #파일명을 답변에 사용할 수 있도록 메타데이터의 file_name 을 context 맨위로 추가
@@ -72,7 +101,7 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
             "output": res.usage.completion_tokens,
             "total": res.usage.total_tokens,
         }
-        return answer, usage
+        return _append_source_files(answer, docs), usage
 
     response = requests.post(
         "http://localhost:11434/api/generate",
@@ -84,7 +113,7 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
     )
 
     result = response.json()
-    answer = result["response"]
+    answer = _append_source_files(result["response"], docs)
     usage = {
         "input": result.get("prompt_eval_count", 0),
         "output": result.get("eval_count", 0),
