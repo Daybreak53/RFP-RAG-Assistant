@@ -56,6 +56,9 @@ def rag_pipeline(
     top_k: int = 3,
     score_threshold: float = 0.2,
     search_mode: str = "vector",
+    rerank_enabled: bool = False,
+    candidate_k: Optional[int] = None,
+    rerank_model: Optional[str] = None,
     reference: Optional[str] = None,
     metadata_filter=None,
     auto_extract_filter: bool = True,
@@ -86,8 +89,11 @@ def rag_pipeline(
             "embed_provider": embed_provider,
             "llm_provider": llm_provider,
             "top_k": top_k,
+            "candidate_k": candidate_k,
             "score_threshold": score_threshold,
             "search_mode": search_mode,
+            "rerank_enabled": rerank_enabled,
+            "rerank_model": rerank_model,
             "filter_applied": qdrant_filter is not None,
         }
     ) as pipeline_span:
@@ -100,8 +106,11 @@ def rag_pipeline(
                 "collection_name": collection_name,
                 "embed_provider": embed_provider,
                 "top_k": top_k,
+                "candidate_k": candidate_k,
                 "score_threshold": score_threshold,
                 "search_mode": search_mode,
+                "rerank_enabled": rerank_enabled,
+                "rerank_model": rerank_model,
                 "filter_applied": qdrant_filter is not None,
             }
         ) as retrieval_span:
@@ -114,6 +123,9 @@ def rag_pipeline(
                 score_threshold=score_threshold,
                 search_mode=search_mode,
                 query_filter=qdrant_filter,
+                rerank_enabled=rerank_enabled,
+                candidate_k=candidate_k,
+                rerank_model=rerank_model,
             )
 
             retrieval_span.update(output=docs)

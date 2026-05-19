@@ -51,7 +51,11 @@ def main():
     parser.add_argument("--llm_provider", type=str, help="LLM 모델 덮어쓰기")
     parser.add_argument("--top_k", type=int, help="검색 결과 수 덮어쓰기")
     parser.add_argument("--score_threshold", type=float, help="유사도 임계값 덮어쓰기")
-    parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/hybrid)")
+    parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/keyword/hybrid)")
+    parser.add_argument("--candidate_k", type=int, help="rerank 전 후보 검색 수 덮어쓰기")
+    parser.add_argument("--rerank", action="store_true", help="rerank 활성화")
+    parser.add_argument("--no_rerank", action="store_true", help="rerank 비활성화")
+    parser.add_argument("--rerank_model", type=str, help="rerank 모델 덮어쓰기")
 
     # 메타데이터 필터 인자
     filter_group = parser.add_argument_group("메타데이터 필터")
@@ -99,15 +103,29 @@ def main():
     embed_provider = args.embed_provider or config['providers'].get('embedding', 'openai')
     llm_provider = args.llm_provider or config['providers'].get('llm', 'openai')
     collection_name = config['collection_name'].get(embed_provider, 'openai')
-    top_k = args.top_k or config['retrieval'].get("top_k", 3)
-    score_threshold = args.score_threshold or config['retrieval'].get("score_threshold", 0.2)
-    search_mode = args.search_mode or config['retrieval'].get("search_mode", "vector")
+    retrieval_config = config.get('retrieval', {})
+    rerank_config = retrieval_config.get('rerank') or {}
+    top_k = args.top_k or retrieval_config.get("top_k", 3)
+    candidate_k = args.candidate_k or retrieval_config.get("candidate_k", max(top_k * 5, top_k))
+    candidate_k = max(top_k, candidate_k)
+    score_threshold = args.score_threshold or retrieval_config.get("score_threshold", 0.2)
+    search_mode = args.search_mode or retrieval_config.get("search_mode", "vector")
+    rerank_enabled = bool(rerank_config.get("enabled", False))
+    if args.rerank:
+        rerank_enabled = True
+    if args.no_rerank:
+        rerank_enabled = False
+    rerank_model = args.rerank_model or rerank_config.get("model")
 
     # 메타데이터 필터 설정
     explicit_filter  = _build_explicit_filter(args)
     auto_extract     = not args.no_auto_filter
     
     print(f"[설정] 임베딩: {embed_provider} | LLM: {llm_provider}\n")
+    print(
+        f"[retrieval] mode: {search_mode} | top_k: {top_k} | "
+        f"candidate_k: {candidate_k} | rerank: {rerank_enabled}"
+    )
 
     # 단계별 실행 로직
     if run_parse or run_ingest:
@@ -170,6 +188,9 @@ def main():
             top_k=top_k,
             score_threshold=score_threshold,
             search_mode=search_mode,
+            rerank_enabled=rerank_enabled,
+            candidate_k=candidate_k,
+            rerank_model=rerank_model,
             reference=reference,
             metadata_filter=explicit_filter,
             auto_extract_filter=auto_extract,

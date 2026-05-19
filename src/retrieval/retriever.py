@@ -72,15 +72,34 @@ def retrieve(
     score_threshold: float = 0.7,
     search_mode: str = "hybrid",
     query_filter: Optional[models.Filter] = None,
+    rerank_enabled: bool = False,
+    candidate_k: Optional[int] = None,
+    rerank_model: Optional[str] = None,
 ):
+    search_top_k = top_k
+    if rerank_enabled:
+        search_top_k = max(top_k, candidate_k or top_k)
+
     if search_mode == "vector":
-        return vector_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
+        docs = vector_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter)
     elif search_mode == "keyword":
-        return keyword_search(collection_name, query, top_k, query_filter)
+        docs = keyword_search(collection_name, query, search_top_k, query_filter)
     elif search_mode == "hybrid":
-        return hybrid_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
+        docs = hybrid_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter)
     else:
         raise ValueError(f"지원하지 않는 search_mode: '{search_mode}'")
+
+    if not rerank_enabled:
+        return docs[:top_k]
+
+    from src.retrieval.reranker import DEFAULT_RERANK_MODEL, rerank
+
+    return rerank(
+        query=query,
+        docs=docs,
+        top_k=top_k,
+        model_name=rerank_model or DEFAULT_RERANK_MODEL,
+    )
 
 
 def vector_search(
