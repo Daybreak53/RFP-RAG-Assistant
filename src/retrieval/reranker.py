@@ -1,3 +1,5 @@
+import hashlib
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
@@ -66,6 +68,91 @@ def _as_float(score: Any) -> float:
     return float(score)
 
 
+def _normalize_key_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+
+def _hash_key(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()
+
+
+def _exact_duplicate_key(doc: dict[str, Any]) -> tuple[str, str]:
+    content = _normalize_key_text(doc.get("content"))
+    if content:
+        return ("content", _hash_key(content))
+
+    return ("doc", _hash_key(_normalize_key_text(_format_doc_for_rerank(doc))))
+
+
+def _diversity_key(doc: dict[str, Any]) -> tuple[str, str] | None:
+    file_name = _normalize_key_text(doc.get("file_name"))
+    section_title = _normalize_key_text(doc.get("section_title"))
+
+    if file_name and section_title:
+        return (file_name, section_title)
+
+    page_number = doc.get("page_number")
+    if file_name and page_number is not None:
+        return (file_name, str(page_number))
+
+    title = _normalize_key_text(doc.get("title"))
+    if file_name or title:
+        return (file_name, title)
+
+    return None
+
+
+def _remove_exact_duplicates(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    unique_docs = []
+
+    for doc in docs:
+        key = _exact_duplicate_key(doc)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_docs.append(doc)
+
+    return unique_docs
+
+
+def _select_diverse_docs(
+    docs: list[dict[str, Any]],
+    top_k: Optional[int],
+) -> list[dict[str, Any]]:
+    unique_docs = _remove_exact_duplicates(docs)
+    if top_k is None:
+        return unique_docs
+
+    selected = []
+    deferred = []
+    seen_groups = set()
+
+    for doc in unique_docs:
+        group_key = _diversity_key(doc)
+        if group_key and group_key in seen_groups:
+            deferred.append(doc)
+            continue
+
+        selected.append(doc)
+        if group_key:
+            seen_groups.add(group_key)
+
+        if len(selected) >= top_k:
+            break
+
+    if len(selected) < top_k:
+        selected_ids = {id(doc) for doc in selected}
+        for doc in deferred:
+            if id(doc) in selected_ids:
+                continue
+            selected.append(doc)
+            if len(selected) >= top_k:
+                break
+
+    return selected
+
+
 def rerank(
     query: str,
     docs: list[dict[str, Any]],
@@ -98,7 +185,9 @@ def rerank(
     for rank, doc in enumerate(reranked_docs, start=1):
         doc["rerank_rank"] = rank
 
-    if top_k is None:
-        return reranked_docs
+    selected_docs = _select_diverse_docs(reranked_docs, top_k)
 
-    return reranked_docs[:top_k]
+    for rank, doc in enumerate(selected_docs, start=1):
+        doc["final_rank"] = rank
+
+    return selected_docs
