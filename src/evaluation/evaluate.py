@@ -1,8 +1,9 @@
+from typing import List, Dict, Any
 from src.evaluation.evaluator import RagasEvaluator
 from src.evaluation.logger import LangfuseEvalLogger
 
 def evaluate(
-    evaluation_data: str, 
+    evaluation_data: List[Dict[str, Any]], 
     model_name: str, 
     is_local: bool = False,
     langfuse=None,

@@ -178,16 +178,5 @@ def main():
             eval_is_local=eval_config.get('is_local', False),
         )
 
-        if run_eval and "evaluation" in result:
-            eval_result = result["evaluation"][0]
-
-            print("===== 평가 결과 =====")
-            print(f"Faithfulness      : {eval_result.get('faithfulness')}")
-            print(f"Answer Relevancy  : {eval_result.get('answer_relevancy')}")
-            print(f"Context Precision : {eval_result.get('context_precision')}")
-            print(f"Context Recall    : {eval_result.get('context_recall')}")
-            print("====================\n")
-        
-
 if __name__ == "__main__":
     main()
