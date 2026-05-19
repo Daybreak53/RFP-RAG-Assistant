@@ -52,6 +52,7 @@ def rag_pipeline(
     collection_name: str,
     embed_provider: str,
     llm_provider: str,
+    llm_model_name: str,
     query: str,
     top_k: int = 3,
     score_threshold: float = 0.2,
@@ -121,20 +122,24 @@ def rag_pipeline(
         with langfuse.start_as_current_observation(
             name="answer_generation",
             as_type="generation",
-            model=llm_provider,
+            model=llm_model_name,
             input={
                 "query": query,
                 "retrieved_docs": docs
             }
         ) as generation:
 
-            answer = generate_answer(
+            answer, usage = generate_answer(
                 query,
                 docs,
-                provider=llm_provider
+                provider=llm_provider,
+                llm_model_name=llm_model_name
             )
 
-            generation.update(output=answer)
+            generation.update(
+                output=answer,
+                usage_details=usage
+            )
 
         result = {
             "user_input": query,
