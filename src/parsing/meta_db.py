@@ -10,24 +10,49 @@ import re
 import unicodedata
 import pandas as pd
 from difflib import SequenceMatcher
+from urllib.parse import unquote, urlparse
 
 
-def normalize_filename(name):
+SOURCE_EXTENSIONS = {".hwp", ".pdf"}
+
+
+def normalize_source_filename(name):
     if not isinstance(name, str):
         return ""
 
-    name = unicodedata.normalize("NFC", name)
+    name = name.strip()
+    if not name:
+        return ""
+
+    parsed = urlparse(name)
+    if parsed.scheme in {"http", "https", "file"} and parsed.path:
+        name = parsed.path
+
+    name = unquote(name)
     name = name.replace("\\", "/")
-    name = os.path.basename(name)
+    return os.path.basename(name).strip()
 
-    name = re.sub(r"\.(pdf|hwp|hwpx)$", "", name, flags=re.IGNORECASE)
-    name = name.lower()
-    name = re.sub(r"\s+", "", name)
 
-    for ch in ["_", "-", "&", "(", ")", "[", "]", "{", "}", ".", ",", "·", "ㆍ"]:
-        name = name.replace(ch, "")
+def normalize_filename(name):
+    filename = normalize_source_filename(name)
+    if not filename:
+        return ""
 
-    return name
+    filename = unicodedata.normalize("NFC", filename)
+    filename = re.sub(r"\s+", " ", filename).strip()
+    filename = re.sub(r"\s+(?=\.[^.]+$)", "", filename)
+    return filename.casefold()
+
+
+def _source_extension(name):
+    return os.path.splitext(normalize_source_filename(name))[1].casefold()
+
+
+def _without_copy_suffix_key(name):
+    filename = normalize_filename(name)
+    stem, ext = os.path.splitext(filename)
+    stem = re.sub(r"\s*\(\d+\)$", "", stem)
+    return f"{stem}{ext}"
 
 
 def similarity(a, b):
@@ -36,20 +61,26 @@ def similarity(a, b):
 
 def find_best_csv_match(actual_file, csv_file_names):
     actual_norm = normalize_filename(actual_file)
+    actual_copyless_norm = _without_copy_suffix_key(actual_file)
+    actual_ext = _source_extension(actual_file)
 
     best_score = 0
     best_csv_file = None
     best_match_type = None
 
     for csv_file in csv_file_names:
+        if actual_ext and _source_extension(csv_file) != actual_ext:
+            continue
+
         csv_norm = normalize_filename(csv_file)
+        csv_copyless_norm = _without_copy_suffix_key(csv_file)
 
         if actual_norm == csv_norm:
             return csv_file, 1.0, "exact"
 
-        if actual_norm in csv_norm or csv_norm in actual_norm:
-            score = 0.95
-            match_type = "contains"
+        if actual_copyless_norm == csv_norm or actual_norm == csv_copyless_norm:
+            score = 0.99
+            match_type = "copy_suffix"
         else:
             score = similarity(actual_norm, csv_norm)
             match_type = "similarity"
@@ -63,6 +94,9 @@ def find_best_csv_match(actual_file, csv_file_names):
 
 
 def load_metadata_db(csv_path: str, data_dir: str, threshold: float = 0.55):
+    if threshold is None:
+        threshold = 0.55
+
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"CSV 파일이 없습니다: {csv_path}")
 
@@ -74,7 +108,9 @@ def load_metadata_db(csv_path: str, data_dir: str, threshold: float = 0.55):
     actual_files = [
         f for f in os.listdir(data_dir)
         if os.path.isfile(os.path.join(data_dir, f))
+        and _source_extension(f) in SOURCE_EXTENSIONS
     ]
+    actual_files.sort(key=normalize_filename)
 
     csv_file_names = metadata_df["파일명"].astype(str).tolist()
 
@@ -87,7 +123,11 @@ def load_metadata_db(csv_path: str, data_dir: str, threshold: float = 0.55):
             csv_file_names
         )
 
-        matched = score >= threshold
+        match_threshold = threshold
+        if match_type == "similarity":
+            match_threshold = max(threshold, 0.9)
+
+        matched = score >= match_threshold
 
         if matched:
             row = metadata_df[
@@ -105,8 +145,8 @@ def load_metadata_db(csv_path: str, data_dir: str, threshold: float = 0.55):
                 "bid_start": row["입찰 참여 시작일"],
                 "bid_deadline": row["입찰 참여 마감일"],
                 "section_title": row["사업 요약"],
-                "file_name": actual_file,
-                "file_type": row["파일형식"],
+                "file_name": normalize_source_filename(actual_file),
+                "file_type": _source_extension(actual_file).lstrip("."),
             }
 
         match_results.append({

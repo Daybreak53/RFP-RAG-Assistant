@@ -4,14 +4,19 @@
 
 import os
 import pandas as pd
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from src.parsing.meta_db import normalize_filename
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_experimental.text_splitter import SemanticChunker
-from langchain_core.documents import Document
+from src.parsing.meta_db import normalize_filename, normalize_source_filename
 import re
 
-embedding = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small") #semantic chunking 용 임베딩 모델(경량화되어있음)
+embedding = None
+
+
+def _get_embedding():
+    global embedding
+    if embedding is None:
+        from langchain_huggingface import HuggingFaceEmbeddings
+
+        embedding = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small")
+    return embedding
 
 def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50, semantic_threshold=90, sem_rec_chunksize=1200, sem_rec_overlap=120, sentences_per_chunk=3, sentence_overlap=1):
     if chunk_mode == "recursive":
@@ -24,6 +29,8 @@ def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overl
         raise ValueError(f"지원하지 않는 chunk_mode: '{chunk_mode}'")
 
 def recursive_chunk(documents, chunk_size, chunk_overlap):
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -32,9 +39,11 @@ def recursive_chunk(documents, chunk_size, chunk_overlap):
 
 #의미기반으로만 나누면 자꾸 OPENAI의 8192개 토큰을 넘어가버려 semantic + recursive 구조로 변경
 def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap):
+    from langchain_experimental.text_splitter import SemanticChunker
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     splitter = SemanticChunker(
-        embedding,
+        _get_embedding(),
         breakpoint_threshold_type="percentile",
         breakpoint_threshold_amount=semantic_threshold
     )
@@ -59,6 +68,8 @@ def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_ove
 
 
 def sentence_chunk(documents, sentences_per_chunk, sentence_overlap):
+    from langchain_core.documents import Document
+
     chunks = []
 
     for doc in documents:
@@ -207,12 +218,15 @@ def convert_chunks_to_rag_format(chunks, metadata_map=None):
     chunk_count_map = {}
 
     for chunk in chunks:
-        source = chunk.metadata.get("source", "")
-        file_name = os.path.basename(source)
+        file_name = _resolve_chunk_source_filename(chunk.metadata)
+        if not file_name:
+            raise ValueError("청크 메타데이터에서 원본 HWP/PDF 파일명을 찾을 수 없습니다.")
+
         file_key = normalize_filename(file_name)
 
         csv_meta = metadata_map.get(file_key, {}) if metadata_map else {}
         doc_id = csv_meta.get("doc_id", os.path.splitext(file_name)[0])
+        file_type = os.path.splitext(file_name)[1].replace(".", "").lower()
 
         if doc_id not in chunk_count_map:
             chunk_count_map[doc_id] = 0
@@ -234,11 +248,8 @@ def convert_chunks_to_rag_format(chunks, metadata_map=None):
                 "page_number": chunk.metadata.get("page", None),
                 "section_title": csv_meta.get("section_title", None),
                 "content": chunk.page_content,
-                "file_name": csv_meta.get("file_name", file_name),
-                "file_type": csv_meta.get(
-                    "file_type",
-                    os.path.splitext(file_name)[1].replace(".", "").lower(),
-                ),
+                "file_name": file_name,
+                "file_type": file_type,
             },
         }
 
@@ -247,12 +258,19 @@ def convert_chunks_to_rag_format(chunks, metadata_map=None):
     return rag_data
 
 
+def _resolve_chunk_source_filename(metadata):
+    for key in ("file_name", "filename", "source", "file_path", "path"):
+        file_name = normalize_source_filename(metadata.get(key, ""))
+        if os.path.splitext(file_name)[1].lower() in {".hwp", ".pdf"}:
+            return file_name
+    return ""
+
+
 def check_document_matching(documents, metadata_map):
     rows = []
 
     for i, doc in enumerate(documents):
-        source = doc.metadata.get("source", "")
-        file_name = os.path.basename(source)
+        file_name = _resolve_chunk_source_filename(doc.metadata)
         file_key = normalize_filename(file_name)
 
         rows.append({

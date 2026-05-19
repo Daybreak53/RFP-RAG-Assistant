@@ -5,6 +5,16 @@ PDF/HWP 문서를 LangChain Document 형태로 로드합니다.
 import os
 from langchain_community.document_loaders import PyPDFLoader
 from src.parsing.hwp_loader import HWPLoader
+from src.parsing.meta_db import normalize_source_filename
+
+
+def _stamp_source_metadata(documents, file_name, file_type):
+    source_file_name = normalize_source_filename(file_name)
+    for doc in documents:
+        doc.metadata["source"] = source_file_name
+        doc.metadata["file_name"] = source_file_name
+        doc.metadata["file_type"] = file_type
+    return documents
 
 
 def load_documents(data_dir: str):
@@ -23,7 +33,8 @@ def load_documents(data_dir: str):
             print("PDF 로드:", file)
             try:
                 loader = PyPDFLoader(file_path)
-                documents.extend(loader.load())
+                loaded_docs = loader.load()
+                documents.extend(_stamp_source_metadata(loaded_docs, file, "pdf"))
             except Exception as e:
                 print("PDF 로드 실패:", file)
                 print(e)
@@ -32,7 +43,8 @@ def load_documents(data_dir: str):
             print("HWP 로드:", file)
             try:
                 loader = HWPLoader(file_path)
-                documents.extend(loader.load())
+                loaded_docs = loader.load()
+                documents.extend(_stamp_source_metadata(loaded_docs, file, "hwp"))
             except Exception as e:
                 print("HWP 로드 실패:", file)
                 print(e)
