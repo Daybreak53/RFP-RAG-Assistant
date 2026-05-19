@@ -90,3 +90,35 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
         "total": result.get("prompt_eval_count", 0) + result.get("eval_count", 0),
     }
     return answer, usage
+
+
+
+
+# HyDE 및 다목적 텍스트 생성을 위한 헬퍼 함수
+
+def generate_pure_text(prompt: str, provider: str = "local") -> str:
+    if provider == "openai":
+        client = get_client()
+        res = client.chat.completions.create(
+            model="gpt-5-nano",  # 현재 설정된 모델명 유지
+            messages=[
+                {"role": "system", "content": "RFP/공문서 작성 전문가"},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return res.choices[0].message.content
+
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "exaone3.5:7.8b",
+                "prompt": prompt,
+                "stream": False
+            }
+        )
+        result = response.json()
+        return result["response"]
+    except Exception as e:
+        print(f"[오류] 로컬 LLM 호출 실패: {e}")
+        raise e
