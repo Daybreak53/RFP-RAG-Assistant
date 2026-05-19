@@ -1,14 +1,37 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Optional
 
+import yaml
 from sentence_transformers import CrossEncoder
 
 
-DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
+FALLBACK_RERANKER_MODEL = "BAAI/bge-reranker-large"
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
+
+
+def _load_default_reranker_model() -> str:
+    if not CONFIG_PATH.exists():
+        return FALLBACK_RERANKER_MODEL
+
+    with CONFIG_PATH.open("r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    return (
+        config.get("retrieval", {})
+        .get("rerank", {})
+        .get("model")
+        or FALLBACK_RERANKER_MODEL
+    )
+
+
+DEFAULT_RERANKER_MODEL = _load_default_reranker_model()
+DEFAULT_RERANK_MODEL = DEFAULT_RERANKER_MODEL
 
 
 @lru_cache(maxsize=2)
-def get_reranker(model_name: str = DEFAULT_RERANK_MODEL) -> CrossEncoder:
+def get_reranker(model_name: Optional[str] = None) -> CrossEncoder:
+    model_name = model_name or DEFAULT_RERANKER_MODEL
     return CrossEncoder(model_name)
 
 
@@ -47,11 +70,12 @@ def rerank(
     query: str,
     docs: list[dict[str, Any]],
     top_k: Optional[int] = None,
-    model_name: str = DEFAULT_RERANK_MODEL,
+    model_name: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     if not docs:
         return []
 
+    model_name = model_name or DEFAULT_RERANKER_MODEL
     try:
         model = get_reranker(model_name)
     except Exception as exc:

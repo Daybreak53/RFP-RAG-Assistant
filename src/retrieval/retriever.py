@@ -92,13 +92,13 @@ def retrieve(
     if not rerank_enabled:
         return docs[:top_k]
 
-    from src.retrieval.reranker import DEFAULT_RERANK_MODEL, rerank
+    from src.retrieval.reranker import DEFAULT_RERANKER_MODEL, rerank
 
     return rerank(
         query=query,
         docs=docs,
         top_k=top_k,
-        model_name=rerank_model or DEFAULT_RERANK_MODEL,
+        model_name=rerank_model or DEFAULT_RERANKER_MODEL,
     )
 
 
