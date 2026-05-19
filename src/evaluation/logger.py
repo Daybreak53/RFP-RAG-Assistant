@@ -1,9 +1,8 @@
 import pandas as pd
-from langfuse import get_client
 
 class LangfuseEvalLogger:
-    def __init__(self):
-        self.langfuse = get_client()
+    def __init__(self, langfuse):
+        self.langfuse = langfuse
 
     def log_evaluation_results(self, eval_results: pd.DataFrame, trace_id_col: str = "trace_id"):
         print("Langfuse에 Ragas 평가 지표를 기록하는 중...")
