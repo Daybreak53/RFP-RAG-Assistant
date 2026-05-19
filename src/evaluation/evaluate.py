@@ -36,7 +36,18 @@ def evaluate(
     data_samples = {
         "user_input": [d["user_input"] for d in evaluation_data],
         "response": [d["response"] for d in evaluation_data],
-        "retrieved_contexts": [d["retrieved_context"] for d in evaluation_data],
+        "contexts": [
+            [
+                ctx.get("content", "") if isinstance(ctx, dict)
+                
+                else getattr(ctx, "content", "") if hasattr(ctx, "content")
+                
+                else str(ctx)
+                
+                for ctx in d.get("retrieved_contexts", d.get("retrieved_context", []))
+            ] 
+            for d in evaluation_data
+        ],
         "reference": [d["reference"] for d in evaluation_data],
         "trace_id": trace_ids
     }

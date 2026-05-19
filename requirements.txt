@@ -17,3 +17,4 @@ olefile
 kiwipiepy
 langchain-hugginface
 langchain-experimental
+scikit-learn
