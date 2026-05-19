@@ -13,7 +13,7 @@ def get_client():
         _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     return _client
 
-def generate_answer(query, docs, provider="local"):
+def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8b"):
     #파일명을 답변에 사용할 수 있도록 메타데이터의 file_name 을 context 맨위로 추가
     context_list = []
     for i, d in enumerate(docs):
@@ -59,76 +59,34 @@ def generate_answer(query, docs, provider="local"):
     if provider == "openai":
         client = get_client()
         res = client.chat.completions.create(
-            model="gpt-5-nano",
+            model=llm_model_name,
             messages=[
                 {"role": "system", "content": "RFP 분석 전문가"},
                 {"role": "user", "content": prompt}
             ]
         )
-        return res.choices[0].message.content
+        answer = res.choices[0].message.content
+        usage = {
+            "input": res.usage.prompt_tokens,
+            "output": res.usage.completion_tokens,
+            "total": res.usage.total_tokens,
+        }
+        return answer, usage
 
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "exaone3.5:7.8b",
+            "model": llm_model_name,
             "prompt": prompt,
             "stream": False
         }
     )
 
     result = response.json()
-
     answer = result["response"]
-
-    return answer
-
-if __name__ == '__main__':
-    print("EXAONE 3.5 7.8B 모델 테스트를 시작합니다...")
-    
-    # 1. 테스트용 가상 문서 데이터 (docs)
-    sample_docs = [
-        {
-            'file_name': 'A공공기관_AI구축_RFP.pdf',
-            'title': '2026년 인공지능 기반 행정 서비스 구축 사업',
-            'organization': '행정안전부',
-            'budget': '15억원',
-            'announcement_date': '2026-05-01',
-            'bid_start': '2026-05-02',
-            'bid_deadline': '2026-06-01',
-            'section_title': '제안 요구 사항',
-            'content': '본 사업은 자체 거대언어모델(LLM)을 활용한 문서 요약 및 검색 증강 생성(RAG) 시스템 구현을 핵심 골자로 한다.'
-        },
-        {
-            'file_name': 'B공공기관_보안 가이드라인.txt',
-            'title': '정보화 사업 보안 대책 강화를 위한 지침',
-            'organization': '국가정보원',
-            'budget': '해당없음',
-            'announcement_date': '2025-12-10',
-            'bid_start': '해당없음',
-            'bid_deadline': '해당없음',
-            'section_title': '데이터 저장 보안',
-            'content': '모든 학습 데이터 및 LLM API 로그는 외부 클라우드가 아닌 원격 사설 서버(On-Premise) 내에 독립적으로 저장되어야 한다.'
-        }
-    ]
-    
-    # 2. 테스트용 질문 (query)
-    # 일부러 문서에 있는 '예산'과 '보안'을 물어보는 질문입니다.
-    sample_query = "AI 구축 사업의 예산은 얼마이고, 데이터는 어디에 저장해야 하나요?"
-    
-    print(f"질문: {sample_query}\n")
-    print("엑사원 엔진이 답변을 생성하는 중입니다... 잠시만 기다려주세요.")
-    
-    try:
-        # 3. 우리가 만든 generate_answer 함수 호출 (provider="local"이 기본값)
-        final_answer = generate_answer(query=sample_query, docs=sample_docs, provider="local")
-        
-        print("\n" + "="*50)
-        print("[엑사원 7.8B 최종 답변]")
-        print("="*50)
-        print(final_answer)
-        print("="*50)
-        print("\n테스트가 성공적으로 완료되었습니다! API 통신 정상입니다.")
-        
-    except Exception as e:
-        print("\n에러 발생! 테스트에 실패했습니다.")
-        print(f"에러 내용: {e}")
+    usage = {
+        "input": result.get("prompt_eval_count", 0),
+        "output": result.get("eval_count", 0),
+        "total": result.get("prompt_eval_count", 0) + result.get("eval_count", 0),
+    }
+    return answer, usage

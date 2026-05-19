@@ -166,6 +166,7 @@ def main():
             collection_name=collection_name,
             embed_provider=embed_provider,
             llm_provider=llm_provider,
+            llm_model_name=config['llm_model_name'].get(llm_provider),
             query=query_text,
             top_k=top_k,
             score_threshold=score_threshold,
