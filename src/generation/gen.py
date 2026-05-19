@@ -2,7 +2,7 @@ import requests
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
-from src.parsing.meta_db import normalize_source_filename
+from src.parsing.meta_db import resolve_source_filename
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
     context_list = []
     for i, d in enumerate(docs):
         # file_name이 없을 경우를 대비해 기본값 설정
-        file_name = normalize_source_filename(d.get('file_name', '')) or '파일명 정보 없음'
+        file_name = resolve_source_filename(d.get('file_name', '')) or '파일명 정보 없음'
         
         doc_str = f"""
         [출처 파일: {file_name}]

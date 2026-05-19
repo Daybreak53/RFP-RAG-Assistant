@@ -10,10 +10,13 @@ import re
 import unicodedata
 import pandas as pd
 from difflib import SequenceMatcher
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 
 SOURCE_EXTENSIONS = {".hwp", ".pdf"}
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 
 
 def normalize_source_filename(name):
@@ -55,8 +58,61 @@ def _without_copy_suffix_key(name):
     return f"{stem}{ext}"
 
 
+def _stem_key(name):
+    stem, _ = os.path.splitext(normalize_filename(name))
+    return re.sub(r"\s*\(\d+\)$", "", stem)
+
+
 def similarity(a, b):
     return SequenceMatcher(None, a, b).ratio()
+
+
+def resolve_source_filename(name, data_dir=None):
+    file_name = normalize_source_filename(name)
+    if _source_extension(file_name) not in SOURCE_EXTENSIONS:
+        return file_name
+
+    source_dir = Path(data_dir) if data_dir else DEFAULT_DATA_DIR
+    if not source_dir.exists():
+        return file_name
+
+    candidates = [
+        p.name for p in source_dir.iterdir()
+        if p.is_file() and _source_extension(p.name) == _source_extension(file_name)
+    ]
+    if not candidates:
+        return file_name
+
+    requested_key = normalize_filename(file_name)
+    requested_copyless_key = _without_copy_suffix_key(file_name)
+    for candidate in candidates:
+        candidate_key = normalize_filename(candidate)
+        if requested_key == candidate_key:
+            return candidate
+        if requested_copyless_key == _without_copy_suffix_key(candidate):
+            return candidate
+
+    requested_stem = _stem_key(file_name)
+    prefix_matches = [
+        candidate for candidate in candidates
+        if len(requested_stem) >= 12 and _stem_key(candidate).startswith(requested_stem)
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+
+    ranked = sorted(
+        (
+            (similarity(requested_key, normalize_filename(candidate)), candidate)
+            for candidate in candidates
+        ),
+        reverse=True,
+    )
+    if ranked and ranked[0][0] >= 0.8:
+        runner_up = ranked[1][0] if len(ranked) > 1 else 0
+        if ranked[0][0] - runner_up >= 0.05:
+            return ranked[0][1]
+
+    return file_name
 
 
 def find_best_csv_match(actual_file, csv_file_names):

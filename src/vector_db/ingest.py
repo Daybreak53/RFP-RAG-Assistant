@@ -3,7 +3,7 @@ from qdrant_client.models import PointStruct
 from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
 from src.embeddings.sparse_embed import embed_sparse_text
-from src.parsing.meta_db import normalize_source_filename
+from src.parsing.meta_db import resolve_source_filename
 
 def ingest(embed_provider: str, collection_name: str, rag_data: list):
     print(f"총 {len(rag_data)}개의 데이터 벡터 DB 적재 시작...")
@@ -12,7 +12,7 @@ def ingest(embed_provider: str, collection_name: str, rag_data: list):
         for item in rag_data:
             m = dict(item.get("metadata", {}))
             if m.get("file_name"):
-                m["file_name"] = normalize_source_filename(m["file_name"])
+                m["file_name"] = resolve_source_filename(m["file_name"])
 
             text_to_embed = f"""
             제목: {m.get('title', '')}
