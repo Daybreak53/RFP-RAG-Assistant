@@ -49,6 +49,73 @@ def find_reference_for_query(query):
     return ""
 
 
+SOURCE_REVIEW_STATUSES = {"missing_citation", "bad_source_location", "unclear"}
+
+
+def _verify_answer_sources(answer, docs, fallback_top_k=5):
+    from source_check import flatten_chunk, verify_answer
+
+    chunks = [flatten_chunk(doc) for doc in docs]
+    if not chunks:
+        return {
+            "overall_status": "needs_review",
+            "source_mode": "no_retrieved_docs",
+            "citations": {"chunk_ids": [], "file_names": [], "pages": []},
+            "claim_count": 0,
+            "checks": [
+                {
+                    "status": "missing_citation",
+                    "reason": "No retrieved documents were available for source verification.",
+                    "claim": "",
+                }
+            ],
+        }
+
+    return verify_answer(answer, chunks, fallback_top_k)
+
+
+def _source_verification_issues(verification):
+    return [
+        check
+        for check in verification.get("checks", [])
+        if check.get("status") in SOURCE_REVIEW_STATUSES
+    ]
+
+
+def _build_source_warning(verification):
+    if verification.get("overall_status") == "not_found_response":
+        return ""
+
+    issues = _source_verification_issues(verification)
+    if not issues:
+        return ""
+
+    status_counts = {}
+    for issue in issues:
+        status = issue.get("status", "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    issue_summary = ", ".join(
+        f"{status} {count}건"
+        for status, count in sorted(status_counts.items())
+    )
+    lines = [
+        "[출처 검증 경고]",
+        f"- 검증 상태: {verification.get('overall_status')}",
+        f"- 문제 유형: {issue_summary}",
+        "- 일부 답변은 인용 출처와 충분히 일치하지 않아 근거 부족으로 검토가 필요합니다.",
+    ]
+
+    for issue in issues[:3]:
+        claim = str(issue.get("claim") or "").strip()
+        if len(claim) > 100:
+            claim = claim[:100].rstrip() + "..."
+        if claim:
+            lines.append(f"- 확인 필요: {issue.get('status')} | {claim}")
+
+    return "\n".join(lines)
+
+
 def rag_pipeline(
     collection_name: str,
     embed_provider: str,
@@ -149,6 +216,11 @@ def rag_pipeline(
                 llm_model_name=llm_model_name
             )
 
+            source_verification = _verify_answer_sources(answer, docs)
+            source_warning = _build_source_warning(source_verification)
+            if source_warning:
+                answer = f"{source_warning}\n\n{answer}"
+
             generation.update(
                 output=answer,
                 usage_details=usage
@@ -158,8 +230,15 @@ def rag_pipeline(
             "user_input": query,
             "response": answer,
             "retrieved_context": [d.get("content", "") for d in docs],
-            "reference": reference if reference is not None else find_reference_for_query(query)
+            "reference": reference if reference is not None else find_reference_for_query(query),
+            "source_verification": source_verification
         }
+
+        print(
+            "[source verification] "
+            f"status: {source_verification.get('overall_status')} | "
+            f"source_mode: {source_verification.get('source_mode')}"
+        )
 
         print("\n===== 답변 =====")
         print(answer)
