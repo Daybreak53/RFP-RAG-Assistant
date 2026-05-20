@@ -78,6 +78,7 @@ def retrieve(
     score_threshold: float = 0.7,
     search_mode: str = "hybrid",
     query_filter: Optional[models.Filter] = None,
+    use_contextual: bool = False
 ):
     if search_mode == "vector":
         return vector_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)

@@ -21,7 +21,7 @@ parsing:
   match_threshold: 0.55
 
 collection_name:
-  local: "rfp_rag_local_sentence_4_1_contextual"
+  local: "rfp_rag_local_recursive_800_80"
   openai: "rfp_rag_openai"
 
 query: "부산국제영화제 용역 지침에서 제안서 본문의 최대 페이지 수 제한과 제안서 요약서의 최대 페이지 수 제한은 각각 얼마인가?"
