@@ -63,7 +63,8 @@ def rag_pipeline(
     auto_extract_filter: bool = True,
     run_eval=False,
     eval_model_name="gpt-4o-mini",
-    eval_is_local=False
+    eval_is_local=False,
+    use_contextual: bool = False
 ):
     from src.retrieval.retriever import retrieve
     from src.retrieval.filter_extractor import resolve_filter
@@ -105,6 +106,7 @@ def rag_pipeline(
                 "score_threshold": score_threshold,
                 "search_mode": search_mode,
                 "filter_applied": qdrant_filter is not None,
+                "use_contextual": use_contextual
             }
         ) as retrieval_span:
 
@@ -116,6 +118,7 @@ def rag_pipeline(
                 score_threshold=score_threshold,
                 search_mode=search_mode,
                 query_filter=qdrant_filter,
+                use_contextual=use_contextual
             )
 
             retrieval_span.update(output=docs)

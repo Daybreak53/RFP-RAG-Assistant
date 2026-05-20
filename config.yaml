@@ -6,13 +6,14 @@ pipeline:
   run_eval: false      # 평가 실행 여부
 
 parsing:
-  chunk_mode: "recursive"   # "recursive" | "semantic" | "sentence"
+  chunk_mode: "semantic"   # "recursive" | "semantic" | "sentence"
+  use_contextual : False   #  True
   chunk_size: 500
   chunk_overlap: 50
 
-  semantic_threshold: 60
+  semantic_threshold: 80
   sem_rec_chunksize : 1200
-  sem_rec_overlap : 120
+  sem_rec_overlap : 100
 
   sentences_per_chunk: 3
   sentence_overlap: 1

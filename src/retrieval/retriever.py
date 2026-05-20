@@ -78,6 +78,7 @@ def retrieve(
     score_threshold: float = 0.7,
     search_mode: str = "hybrid",
     query_filter: Optional[models.Filter] = None,
+    use_contextual: bool = False
 ):
     if search_mode == "vector":
         return vector_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
@@ -255,7 +256,6 @@ def mmr_search(
                     for sel_idx in selected_indices
                 ])
                 
-                # 💡 개선 3: 코사인 유사도 결과(-1 ~ 1)를 안전하게 0 ~ 1 범위로 변환하여 페널티 스케일 일치
                 sim_to_selected_scaled = (sim_to_selected + 1) / 2
                 
                 mmr_score = lambda_param * sim_to_query - (1 - lambda_param) * sim_to_selected_scaled
