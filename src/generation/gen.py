@@ -50,14 +50,10 @@ def _format_source_entry(entry):
     if entry.get("page_number") is not None:
         parts.append(f"p.{entry['page_number']}")
 
-    if entry.get("section_title"):
-        parts.append(f"section={entry['section_title']}")
-
-    source_text = " / ".join(str(part) for part in parts if part)
     if entry.get("chunk_id"):
-        return f"[{entry['chunk_id']}] {source_text}"
+        parts.append(f"chunk={entry['chunk_id']}")
 
-    return source_text
+    return f"출처: {', '.join(str(part) for part in parts if part)}"
 
 
 def _strip_llm_source_section(answer):
@@ -86,13 +82,11 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
         if page_number is None:
             page_number = '페이지 정보 없음'
         chunk_id = d.get('chunk_id') or d.get('id') or '청크 ID 정보 없음'
-        citation_key = f"[{chunk_id}]" if chunk_id != '청크 ID 정보 없음' else '[청크 ID 정보 없음]'
         
         doc_str = f"""
         [출처 파일: {file_name}]
         [페이지: {page_number}]
         [청크 ID: {chunk_id}]
-        [인용 키: {citation_key}]
         제목: {d.get('title','')}
         기관: {d.get('organization','')}
         예산: {d.get('budget','')}
@@ -112,14 +106,13 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
 
     [규칙]
     1. 근거 기반: [문서]에 없는 내용은 절대 답변하지 마세요(정보 부족 시 "정보를 찾을 수 없습니다" 출력).
-    2. chunk_id 기반 출처 명시: 답변의 사실 문장 끝에는 반드시 해당 근거의 [인용 키]를 붙이세요.
-       예: 제안서 본문은 50페이지 이내로 제한됩니다. [DOC001_0007]
-       파일명만 단독으로 출처처럼 쓰지 말고, 청크 ID를 우선 사용하세요.
+    2. 출처 명시: 답변 내용에 출처를 표기할 때는 "출처: 파일명, p.페이지, chunk=청크ID" 형식을 사용하세요.
+       파일명만 단독으로 쓰지 말고, 가능하면 페이지와 청크 ID를 함께 표기하세요.
     3. 문서 구분: 여러 문서의 정보가 상이하면 절대 섞지 말고, 문서별로 나누어 서술하세요.
     4. 출력 형식: 간략한 '사고 과정' 후 '답변:'을 제시하고, 마지막에 [출처 상세]를 작성하세요.
 
     [출처 상세 형식]
-    - [청크 ID] 파일명: [파일명] / 페이지: [페이지]
+    - 출처: [파일명], p.[페이지], chunk=[청크 ID]
     - [제목] / [기관] / [공고일] / [입찰기간]
     - 핵심내용: (1줄 요약)
 
