@@ -16,32 +16,64 @@ def get_client():
     return _client
 
 
-def _unique_source_files(docs):
-    source_files = []
+def _source_entries(docs):
+    source_entries = []
     seen = set()
 
     for doc in docs:
         file_name = resolve_source_filename(doc.get("file_name", ""))
-        if not file_name or file_name in seen:
+        if not file_name:
             continue
-        seen.add(file_name)
-        source_files.append(file_name)
 
-    return source_files
+        chunk_id = doc.get("chunk_id") or doc.get("id") or doc.get("point_id")
+        page_number = doc.get("page_number")
+        section_title = doc.get("section_title")
+        key = chunk_id or (file_name, page_number, section_title)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        source_entries.append({
+            "file_name": file_name,
+            "page_number": page_number,
+            "chunk_id": chunk_id,
+            "section_title": section_title,
+        })
+
+    return source_entries
+
+
+def _format_source_entry(entry):
+    parts = [entry["file_name"]]
+
+    if entry.get("page_number") is not None:
+        parts.append(f"p.{entry['page_number']}")
+
+    if entry.get("chunk_id"):
+        parts.append(f"chunk_id={entry['chunk_id']}")
+
+    if entry.get("section_title"):
+        parts.append(f"section={entry['section_title']}")
+
+    return " / ".join(str(part) for part in parts if part)
 
 
 def _strip_llm_source_section(answer):
-    pattern = r"\n*\*{0,2}출처\s*상세\*{0,2}\s*\n.*$"
+    pattern = r"\n*(?:\*{0,2}\s*)?\[?\s*출처\s*(?:상세|파일)\s*\]?\s*(?:\*{0,2})?\s*\n.*$"
     return re.sub(pattern, "", answer.strip(), flags=re.DOTALL)
 
 
 def _append_source_files(answer, docs):
-    source_files = _unique_source_files(docs)
-    if not source_files:
+    source_entries = _source_entries(docs)
+    if not source_entries:
         return answer
 
-    source_block = "\n".join(f"- {file_name}" for file_name in source_files)
-    return f"{_strip_llm_source_section(answer)}\n\n**출처 파일**\n{source_block}"
+    source_block = "\n".join(
+        f"- {_format_source_entry(entry)}"
+        for entry in source_entries
+    )
+    return f"{_strip_llm_source_section(answer)}\n\n**출처 상세**\n{source_block}"
 
 def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8b"):
     #파일명을 답변에 사용할 수 있도록 메타데이터의 file_name 을 context 맨위로 추가
@@ -49,9 +81,15 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
     for i, d in enumerate(docs):
         # file_name이 없을 경우를 대비해 기본값 설정
         file_name = resolve_source_filename(d.get('file_name', '')) or '파일명 정보 없음'
+        page_number = d.get('page_number')
+        if page_number is None:
+            page_number = '페이지 정보 없음'
+        chunk_id = d.get('chunk_id') or d.get('id') or d.get('point_id') or '청크 ID 정보 없음'
         
         doc_str = f"""
         [출처 파일: {file_name}]
+        [페이지: {page_number}]
+        [청크 ID: {chunk_id}]
         제목: {d.get('title','')}
         기관: {d.get('organization','')}
         예산: {d.get('budget','')}
@@ -72,11 +110,12 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
     [규칙]
     1. 근거 기반: [문서]에 없는 내용은 절대 답변하지 마세요(정보 부족 시 "정보를 찾을 수 없습니다" 출력).
     2. 출처 명시: 답변 내용에 [파일명]을 반드시 표기하세요.
+       가능하면 함께 제공된 [페이지]와 [청크 ID]도 같이 표기하세요.
     3. 문서 구분: 여러 문서의 정보가 상이하면 절대 섞지 말고, 문서별로 나누어 서술하세요.
     4. 출력 형식: 간략한 '사고 과정' 후 '답변:'을 제시하고, 마지막에 [출처 상세]를 작성하세요.
 
     [출처 상세 형식]
-    - 파일명: [파일명]
+    - 파일명: [파일명] / 페이지: [페이지] / 청크 ID: [청크 ID]
     - [제목] / [기관] / [공고일] / [입찰기간]
     - 핵심내용: (1줄 요약)
 
