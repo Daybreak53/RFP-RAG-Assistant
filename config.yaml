@@ -20,15 +20,15 @@ parsing:
   match_threshold: 0.55
 
 collection_name:
-  local: "rfp_rag_local_sem_70_1100_120"
+  local: "rfp_rag_local"
   openai: "rfp_rag_openai"
 
-query: "유사용역사업 이행실적 평가에서 만점(4점)을 받으려면 최근 3년간 실적 합산금액이 사업 예정가격의 몇 % 이상이어야 하는가?"
+query: "제안서 본문 내용의 최대 페이지 수 제한과 제안서 요약서의 최대 페이지 수 제한은 각각 얼마인가?"
 
 retrieval:
   top_k: 3
-  score_threshold: 0.3
-  search_mode: "hybrid"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
+  score_threshold: 0.7
+  search_mode: "keyword"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
 
 providers:
   embedding: "local"  # 임베딩 모델
