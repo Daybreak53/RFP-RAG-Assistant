@@ -39,6 +39,7 @@ def main():
     
     # 변인 제어 인자
     parser.add_argument("--chunk_mode", type=str, help="청킹 방식 덮어쓰기 (recursive/semantic/sentence)")
+    parser.add_argument("--use_contextual", type=bool, help="contextual retrieval ON/OFF")
     parser.add_argument("--chunk_size", type=int, help="청크 크기 덮어쓰기")
     parser.add_argument("--chunk_overlap", type=int, help="청크 오버랩 덮어쓰기")
     parser.add_argument("--semantic_threshold",type=int,help="시멘틱 청크 threshold 덮어쓰기")
@@ -88,6 +89,11 @@ def main():
 
     # 변인 설정
     chunk_mode = args.chunk_mode or config['parsing'].get("chunk_mode", "recursive")
+    cli_contextual = args.use_contextual
+    if isinstance(cli_contextual, str):
+        use_contextual = cli_contextual.lower() in ['true', '1', 't', 'y', 'yes']
+    else:
+        use_contextual = cli_contextual if cli_contextual is not None else config['parsing'].get("use_contextual", False)
     chunk_size = args.chunk_size or config['parsing'].get("chunk_size", 500)
     chunk_overlap = args.chunk_overlap or config['parsing'].get("chunk_overlap", 50)
     semantic_threshold = args.semantic_threshold or config['parsing'].get("semantic_threshold", 80)
@@ -125,7 +131,9 @@ def main():
                 sem_rec_overlap=sem_rec_overlap,
                 sentences_per_chunk=sentences_per_chunk,
                 sentence_overlap=sentence_overlap,
-                match_threshold=match_threshold
+                match_threshold=match_threshold,
+                embed_provider=embed_provider,
+                use_contextual=use_contextual
             )
         
         if run_ingest:
@@ -177,6 +185,7 @@ def main():
             run_eval=run_eval,
             eval_model_name=eval_config.get('model_name', 'gpt-5-nano'),
             eval_is_local=eval_config.get('is_local', False),
+            use_contextual=use_contextual
         )
 
 if __name__ == "__main__":

@@ -94,7 +94,7 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
 
 
 
-# HyDE 및 다목적 텍스트 생성을 위한 헬퍼 함수
+# HyDE, 
 
 def generate_pure_text(prompt: str, provider: str = "local") -> str:
     if provider == "openai":
