@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--llm_provider", type=str, help="LLM 모델 덮어쓰기")
     parser.add_argument("--top_k", type=int, help="검색 결과 수 덮어쓰기")
     parser.add_argument("--score_threshold", type=float, help="유사도 임계값 덮어쓰기")
-    parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/keyword/hybrid)")
+    parser.add_argument("--search_mode", type=str, help="검색 방식 덮어쓰기 (vector/keyword/hybrid/mmr/hyde)")
     parser.add_argument("--candidate_k", type=int, help="rerank 전 후보 검색 수 덮어쓰기")
     parser.add_argument("--rerank", action="store_true", help="rerank 활성화")
     parser.add_argument("--no_rerank", action="store_true", help="rerank 비활성화")

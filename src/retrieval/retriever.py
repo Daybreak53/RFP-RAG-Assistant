@@ -91,16 +91,16 @@ def retrieve(
     elif search_mode == "keyword":
         docs = keyword_search(collection_name, query, search_top_k, query_filter)
     elif search_mode == "hybrid":
-        return hybrid_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
+        docs = hybrid_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter)
     elif search_mode == "mmr":
-        return mmr_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter,lambda_param=0.95)
+        docs = mmr_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter,lambda_param=0.95)
     elif search_mode == "hyde":
-        return hyde_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
+        docs = hyde_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter)
     else:
         raise ValueError(f"지원하지 않는 search_mode: '{search_mode}'")
 
     if not rerank_enabled:
-        return docs[:top_k]
+        return docs[:search_top_k]
 
     from src.retrieval.reranker import DEFAULT_RERANKER_MODEL, rerank
 
