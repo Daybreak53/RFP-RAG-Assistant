@@ -5,8 +5,8 @@ from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_DATASET_PATHS = (
-    #ROJECT_ROOT / "data" / "eval_dataset_hwp.json",
-    #ROJECT_ROOT / "data" / "eval_dataset_pdf.json",
+    # PROJECT_ROOT / "data" / "eval_dataset_hwp.json",
+    # PROJECT_ROOT / "data" / "eval_dataset_pdf.json",
     PROJECT_ROOT / "data" / "eval_dataset.json",
 )
 
