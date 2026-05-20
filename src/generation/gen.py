@@ -94,7 +94,7 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
 
 
 
-# HyDE, 
+# HyDE 및 contextual retrieval 용 LLM 모듈
 
 def generate_pure_text(prompt: str, provider: str = "local") -> str:
     if provider == "openai":
