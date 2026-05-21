@@ -24,12 +24,17 @@ collection_name:
   local: "rfp_rag_local"
   openai: "rfp_rag_openai"
 
-query: "제안서 본문 내용의 최대 페이지 수 제한과 제안서 요약서의 최대 페이지 수 제한은 각각 얼마인가?"
+query: "부산국제영화제 용역 지침에서 제안서 본문의 최대 페이지 수 제한과 제안서 요약서의 최대 페이지 수 제한은 각각 얼마인가?"
 
 retrieval:
   top_k: 3
   score_threshold: 0.7
-  search_mode: "keyword"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
+  search_mode: "hybrid"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
+
+  multi_query:
+    enabled: true           # true면 multi-query 사용 / search_mode를 base로 사용
+    method: "llm"           # LLM이 query 자동 분해
+    query_count: 5
 
 providers:
   embedding: "local"  # 임베딩 모델
