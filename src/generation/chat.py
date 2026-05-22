@@ -50,8 +50,8 @@ def run_single_query(
 
     embed_provider  = cfg.providers.embedding
     llm_provider    = cfg.providers.llm
-    collection_name = cfg.collection_name[embed_provider]
-    run_eval        = cfg.run_eval
+    collection_name = cfg.vector_db.collection_names[embed_provider]
+    run_eval        = cfg.pipeline.run_eval
 
     explicit_filter = _build_explicit_filter(cfg)
     auto_extract    = not cfg.filter.no_auto
@@ -70,7 +70,7 @@ def run_single_query(
         collection_name     = collection_name,
         embed_provider      = embed_provider,
         llm_provider        = llm_provider,
-        llm_model_name      = cfg.llm_model_name[llm_provider],
+        llm_model_name      = cfg.providers.models.llm[llm_provider],
         query               = query_text,
         top_k               = cfg.retrieval.top_k,
         score_threshold     = cfg.retrieval.score_threshold,
