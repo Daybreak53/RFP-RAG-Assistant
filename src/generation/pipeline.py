@@ -2,12 +2,15 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
+from src.retrieval.retriever import retrieve
+from src.retrieval.filter_extractor import resolve_filter
+from src.generation.gen import generate_answer
+from langfuse import get_client
+from src.evaluation.evaluate import evaluate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 EVAL_DATASET_PATHS = (
-    # PROJECT_ROOT / "data" / "eval_dataset_hwp.json",
-    # PROJECT_ROOT / "data" / "eval_dataset_pdf.json",
     PROJECT_ROOT / "data" / "eval_dataset.json",
 )
 
@@ -70,11 +73,10 @@ def rag_pipeline(
     use_contextual: bool = False,
     use_multi_query: bool = False,
     multi_query_count: int = 5,
+    conversation_history: list = None,
 ):
-    from src.retrieval.retriever import retrieve
-    from src.retrieval.filter_extractor import resolve_filter
-    from src.generation.gen import generate_answer
-    from langfuse import get_client
+    if conversation_history is None:
+        conversation_history = []
 
     langfuse = get_client()
 
@@ -96,6 +98,7 @@ def rag_pipeline(
             "score_threshold": score_threshold,
             "search_mode": search_mode,
             "filter_applied": qdrant_filter is not None,
+            "history_turns": len(conversation_history) // 2,
             "use_contextual": use_contextual,
             "use_multi_query": use_multi_query,
             "multi_query_count": multi_query_count,
@@ -141,7 +144,8 @@ def rag_pipeline(
             input={
                 "query": query,
                 "retrieved_docs": docs,
-            },
+                "history_turns": len(conversation_history) // 2,
+            }
         ) as generation:
 
             answer, usage = generate_answer(
@@ -149,6 +153,7 @@ def rag_pipeline(
                 docs,
                 provider=llm_provider,
                 llm_model_name=llm_model_name,
+                conversation_history=conversation_history,
             )
 
             generation.update(
@@ -156,11 +161,17 @@ def rag_pipeline(
                 usage_details=usage,
             )
 
+        updated_history = conversation_history + [
+            {"role": "user",      "content": query},
+            {"role": "assistant", "content": answer},
+        ]
+
         result = {
             "user_input": query,
             "response": answer,
             "retrieved_context": [d.get("content", "") for d in docs],
             "reference": reference if reference is not None else find_reference_for_query(query),
+            "updated_history": updated_history,
         }
 
         print("\n===== 답변 =====")
@@ -168,7 +179,6 @@ def rag_pipeline(
         print("===============\n")
 
         if run_eval:
-            from src.evaluation.evaluate import evaluate
 
             print("--- [4] 평가 시작 ---")
 

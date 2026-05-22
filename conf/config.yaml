@@ -1,0 +1,76 @@
+# ==========================================
+# Configuration
+# ==========================================
+
+# 1. 실행 파이프라인 설정
+pipeline:
+  run_all: false       # true일 경우 전체 파이프라인 순차 실행
+  run_parse: false     # 파싱 실행 여부
+  run_ingest: false    # DB 적재 실행 여부
+  run_query: false     # 단일 질의(RAG) 실행 여부
+  run_eval: false      # 평가 실행 여부
+  run_chat: false      # 대화형 모드 실행 여부
+
+# 2. 모델 및 프로바이더 설정
+providers:
+  embedding: "local"  # "local" | "openai"
+  llm: "local"        # "local" | "openai"
+  
+  models:
+    embedding:
+      openai: "text-embedding-3-small"
+      local: "BAAI/bge-m3"
+    llm:
+      openai: "gpt-5-nano"
+      local: "exaone3.5:7.8b"
+
+# 3. 벡터 데이터베이스 설정
+vector_db:
+  collection_names:
+    local: "rfp_rag_local"
+    openai: "rfp_rag_openai"
+
+# 4. 문서 파싱 및 청킹 설정
+parsing:
+  chunk_mode: "semantic"   # "recursive" | "semantic" | "sentence"
+  use_contextual: false    # Contextual chunking 사용 여부
+  chunk_size: 500
+  chunk_overlap: 50
+  
+  semantic_threshold: 80
+  sem_rec_chunksize: 1200
+  sem_rec_overlap: 100
+  
+  sentences_per_chunk: 3
+  sentence_overlap: 1
+  match_threshold: 0.55
+
+# 5. 검색(Retrieval) 설정
+query: "제안서 본문 내용의 최대 페이지 수 제한과 제안서 요약서의 최대 페이지 수 제한은 각각 얼마인가?"
+
+retrieval:
+  top_k: 3
+  score_threshold: 0.7
+  search_mode: "keyword"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
+
+# 6. 메타데이터 필터 조건
+filter:
+  org: null                 # 발주 기관명 (부분 문자열 매칭)
+  budget_min: null          # 사업 금액 최솟값 (원 단위)
+  budget_max: null          # 사업 금액 최댓값 (원 단위)
+  announce_after: null      # 공고일 시작 (YYYY-MM-DD)
+  announce_before: null     # 공고일 종료 (YYYY-MM-DD)
+  bid_start_after: null     # 입찰 시작일 (YYYY-MM-DD)
+  bid_deadline_before: null # 입찰 마감일 (YYYY-MM-DD)
+  title: null               # 사업명 키워드
+  doc_id: null              # 공고 번호 (정확히 일치)
+  no_auto: false            # 자동 추출 비활성화 여부
+
+# 7. 대화형(Chat) 설정
+chat:
+  max_history_turns: 5
+
+# 8. 평가(Evaluation) 설정
+evaluation:
+  model_name: "gpt-5-nano"
+  is_local: false
