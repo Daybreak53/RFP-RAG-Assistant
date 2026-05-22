@@ -16,7 +16,7 @@ MIN_TOKEN_LENGTH = 2                # 검색어로서 의미를 가지는 최소
 @lru_cache(maxsize=1)
 def get_kiwi_instance() -> Kiwi:
     """
-    Kiwi 형태소 분석기 인스턴스 로드 (싱글톤)
+    Kiwi 형태소 분석기 인스턴스 로드
     """
     logger.info("Kiwi 형태소 분석기 인스턴스를 초기화합니다.")
     return Kiwi()

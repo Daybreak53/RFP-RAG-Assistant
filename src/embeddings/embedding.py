@@ -17,7 +17,7 @@ DEFAULT_OPENAI_MODEL = "text-embedding-3-small"
 @lru_cache(maxsize=1)
 def get_dense_model() -> SentenceTransformer:
     """
-    로컬 임베딩 모델 로드 (싱글톤)
+    로컬 임베딩 모델 로드
     """
     logger.info(f"로컬 임베딩 모델 로드 중: {DEFAULT_LOCAL_MODEL}")
     return SentenceTransformer(DEFAULT_LOCAL_MODEL)
@@ -26,7 +26,7 @@ def get_dense_model() -> SentenceTransformer:
 @lru_cache(maxsize=1)
 def get_openai_client() -> OpenAI:
     """
-    OpenAI 클라이언트 초기화 (싱글톤)
+    OpenAI 클라이언트 초기화
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
