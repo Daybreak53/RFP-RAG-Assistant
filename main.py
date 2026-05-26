@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from src.parsing.run_parsing import run_parsing
 from src.vector_db.ingest import ingest
 from src.vector_db.vectordb import create_collection
-from src.generation.chat import run_chat_mode, run_single_query
+from src.generation.chat import run_chat_mode, run_single_query, run_multi_query
 
 # 로깅 설정
 logging.basicConfig(
@@ -84,9 +84,14 @@ def main(cfg: DictConfig) -> None:
             run_chat_mode(cfg)
         elif run_query:
             query_text = cfg.query
-            logger.info("--- [3] 단일 질의 시작 ---")
             logger.info(f"질의 내용: {query_text}")
-            run_single_query(cfg=cfg, query_text=query_text)
+
+            if cfg.retrieval.multi_query.enabled:
+                logger.info("--- [3] Multi-Query 질의 시작 ---")
+                run_multi_query(cfg=cfg, query_text=query_text)
+            else:
+                logger.info("--- [3] 단일 질의 시작 ---")
+                run_single_query(cfg=cfg, query_text=query_text)
         else:
             logger.info("질의(run_query) 및 대화(run_chat) 모드가 모두 비활성화되어 파이프라인을 종료합니다.")
 
