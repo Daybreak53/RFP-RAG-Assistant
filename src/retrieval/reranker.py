@@ -1,50 +1,19 @@
 import hashlib
 import re
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Optional
 
-import yaml
 import torch
 from sentence_transformers import CrossEncoder
 
 
 FALLBACK_RERANKER_MODEL = "BAAI/bge-reranker-large"
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
-
-
-def _load_reranker_config() -> dict[str, Any]:
-    if not CONFIG_PATH.exists():
-        return {}
-
-    with CONFIG_PATH.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
-
-    return config.get("retrieval", {}).get("rerank", {}) or {}
-
-
-def _optional_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    return float(value)
-
-
-RERANKER_CONFIG = _load_reranker_config()
-DEFAULT_RERANKER_MODEL = RERANKER_CONFIG.get("model") or FALLBACK_RERANKER_MODEL
-DEFAULT_RERANK_MODEL = DEFAULT_RERANKER_MODEL
-DEFAULT_RERANKER_MAX_LENGTH = int(RERANKER_CONFIG.get("max_length", 512))
-DEFAULT_RERANK_BATCH_SIZE = int(RERANKER_CONFIG.get("batch_size", 16))
-DEFAULT_MAX_CONTENT_CHARS = int(RERANKER_CONFIG.get("max_content_chars", 1800))
-DEFAULT_RERANK_SCORE_THRESHOLD = _optional_float(
-    RERANKER_CONFIG.get("score_threshold", RERANKER_CONFIG.get("rerank_score_threshold"))
-)
-DEFAULT_DIVERSITY_PER_GROUP = int(RERANKER_CONFIG.get("diversity_per_group", 1))
 
 
 @lru_cache(maxsize=2)
-def get_reranker(model_name: Optional[str] = None) -> CrossEncoder:
-    model_name = model_name or DEFAULT_RERANKER_MODEL
-    return CrossEncoder(model_name, max_length=DEFAULT_RERANKER_MAX_LENGTH)
+def get_reranker(model_name: Optional[str] = None, max_length: int = 512) -> CrossEncoder:
+    model_name = model_name or FALLBACK_RERANKER_MODEL
+    return CrossEncoder(model_name, max_length=max_length)
 
 
 def _get_predict_device() -> Optional[str]:
@@ -58,7 +27,7 @@ def _get_predict_device() -> Optional[str]:
     return None
 
 
-def _trim_text(value: Any, max_chars: int = DEFAULT_MAX_CONTENT_CHARS) -> str:
+def _trim_text(value: Any, max_chars: int = 1800) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     if max_chars <= 0 or len(text) <= max_chars:
         return text
@@ -68,9 +37,9 @@ def _trim_text(value: Any, max_chars: int = DEFAULT_MAX_CONTENT_CHARS) -> str:
     return f"{text[:head_chars]} ... {text[-tail_chars:]}"
 
 
-def _format_doc_for_rerank(doc: dict[str, Any]) -> str:
+def _format_doc_for_rerank(doc: dict[str, Any], max_content_chars: int = 1800) -> str:
     fields = (
-        ("content", _trim_text(doc.get("content"))),
+        ("content", _trim_text(doc.get("content"), max_chars=max_content_chars)),
         ("section_title", doc.get("section_title")),
         ("title", doc.get("title")),
         ("organization", doc.get("organization")),
@@ -150,7 +119,7 @@ def _remove_exact_duplicates(docs: list[dict[str, Any]]) -> list[dict[str, Any]]
 def _select_diverse_docs(
     docs: list[dict[str, Any]],
     top_k: Optional[int],
-    diversity_per_group: int = DEFAULT_DIVERSITY_PER_GROUP,
+    diversity_per_group: int = 1,
 ) -> list[dict[str, Any]]:
     unique_docs = _remove_exact_duplicates(docs)
     if top_k is None:
@@ -193,22 +162,25 @@ def rerank(
     docs: list[dict[str, Any]],
     top_k: Optional[int] = None,
     model_name: Optional[str] = None,
-    score_threshold: Optional[float] = DEFAULT_RERANK_SCORE_THRESHOLD,
-    diversity_per_group: int = DEFAULT_DIVERSITY_PER_GROUP,
+    max_length: int = 512,
+    batch_size: int = 16,
+    max_content_chars: int = 1800,
+    score_threshold: Optional[float] = None,
+    diversity_per_group: int = 1,
 ) -> list[dict[str, Any]]:
     if not docs:
         return []
 
-    model_name = model_name or DEFAULT_RERANKER_MODEL
+    model_name = model_name or FALLBACK_RERANKER_MODEL
     try:
-        model = get_reranker(model_name)
+        model = get_reranker(model_name, max_length=max_length)
     except Exception as exc:
         raise RuntimeError(f"Failed to load reranker model: {model_name}") from exc
 
     scorable_docs = []
     pairs = []
     for doc in docs:
-        doc_text = _format_doc_for_rerank(doc)
+        doc_text = _format_doc_for_rerank(doc, max_content_chars=max_content_chars)
         if not doc_text:
             continue
         scorable_docs.append(doc)
@@ -219,7 +191,7 @@ def rerank(
 
     scores = model.predict(
         pairs,
-        batch_size=DEFAULT_RERANK_BATCH_SIZE,
+        batch_size=batch_size,
         show_progress_bar=False,
         activation_fn=torch.nn.Sigmoid(),
         convert_to_numpy=True,

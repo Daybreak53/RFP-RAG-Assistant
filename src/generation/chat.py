@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from src.retrieval.filter_extractor import MetadataFilter
 from src.generation.pipeline import rag_pipeline, find_reference_for_query
 
@@ -66,6 +66,8 @@ def run_single_query(
                 f"현재 질의: {query_text}"
             )
 
+    rerank_config = OmegaConf.to_container(cfg.retrieval.rerank, resolve=True)
+
     return rag_pipeline(
         collection_name     = collection_name,
         embed_provider      = embed_provider,
@@ -75,6 +77,11 @@ def run_single_query(
         top_k               = cfg.retrieval.top_k,
         score_threshold     = cfg.retrieval.score_threshold,
         search_mode         = cfg.retrieval.search_mode,
+        candidate_k         = cfg.retrieval.candidate_k,
+        rerank_config       = rerank_config,
+        use_multi_query     = cfg.retrieval.use_multi_query,
+        multi_query_count   = cfg.retrieval.multi_query_count,
+        multi_query_rrf_k   = cfg.retrieval.multi_query_rrf_k,
         reference           = reference,
         metadata_filter     = explicit_filter,
         auto_extract_filter = auto_extract,

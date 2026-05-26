@@ -9,6 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # HyDE / Multi-query용 텍스트 생성부
 from src.generation.gen import generate_pure_text
+from src.retrieval.reranker import rerank
 
 
 def _format_results(results):
@@ -86,6 +87,9 @@ def retrieve(
     use_contextual: bool = False,
     use_multi_query: bool = False,
     multi_query_count: int = 5,
+    multi_query_rrf_k: int = 60,
+    candidate_k: Optional[int] = None,
+    rerank_config: Optional[dict] = None,
 ):
     """
     search_mode:
@@ -100,63 +104,67 @@ def retrieve(
       - True: LLM이 query를 여러 개로 분해한 뒤 search_mode 방식으로 반복 검색
     """
 
+    rerank_enabled = bool(rerank_config and rerank_config.get("enabled"))
+    search_top_k = max(top_k, candidate_k or top_k) if rerank_enabled else top_k
+
     if use_multi_query:
-        return multi_query_search(
+        docs = multi_query_search(
             collection_name=collection_name,
             embed_provider=embed_provider,
             query=query,
-            top_k=top_k,
+            top_k=search_top_k,
             score_threshold=score_threshold,
             query_filter=query_filter,
             base_search_mode=search_mode,
             query_count=multi_query_count,
+            rrf_k=multi_query_rrf_k,
         )
 
-    if search_mode == "vector":
-        return vector_search(
+    elif search_mode == "vector":
+        docs = vector_search(
             collection_name,
             embed_provider,
             query,
-            top_k,
+            search_top_k,
             score_threshold,
             query_filter,
         )
 
     elif search_mode == "keyword":
-        return keyword_search(
+        docs = keyword_search(
             collection_name,
             query,
-            top_k,
+            search_top_k,
             query_filter,
         )
 
     elif search_mode == "hybrid":
-        return hybrid_search(
+        docs = hybrid_search(
             collection_name,
             embed_provider,
             query,
-            top_k,
+            search_top_k,
             score_threshold,
             query_filter,
         )
 
     elif search_mode == "mmr":
-        return mmr_search(
+        docs = mmr_search(
             collection_name,
             embed_provider,
             query,
-            top_k,
+            search_top_k,
             score_threshold,
             query_filter,
             lambda_param=0.95,
         )
 
     elif search_mode == "hyde":
-        return hyde_search(
+        docs = hyde_search(
             collection_name,
             embed_provider,
             query,
-            top_k,
+            search_top_k,
             score_threshold,
             query_filter,
         )
@@ -165,16 +173,29 @@ def retrieve(
         raise ValueError(f"지원하지 않는 search_mode: '{search_mode}'")
 
     if not rerank_enabled:
-        return docs[:search_top_k]
+        return docs[:top_k]
 
-    from src.retrieval.reranker import DEFAULT_RERANKER_MODEL, rerank
+    try:
+        reranked = rerank(
+            query=query,
+            docs=docs,
+            top_k=top_k,
+            model_name=rerank_config.get("model"),
+            max_length=rerank_config.get("max_length", 512),
+            batch_size=rerank_config.get("batch_size", 16),
+            max_content_chars=rerank_config.get("max_content_chars", 1800),
+            score_threshold=rerank_config.get("score_threshold"),
+            diversity_per_group=rerank_config.get("diversity_per_group", 1),
+        )
+    except Exception as exc:
+        print(f"[경고] rerank 실패로 원본 검색 결과를 사용합니다: {exc} (config: {rerank_config})")
+        return docs[:top_k]
 
-    return rerank(
-        query=query,
-        docs=docs,
-        top_k=top_k,
-        model_name=rerank_model or DEFAULT_RERANKER_MODEL,
-    )
+    if not reranked:
+        print(f"[경고] rerank 결과가 비어 원본 검색 결과를 사용합니다. (config: {rerank_config})")
+        return docs[:top_k]
+
+    return reranked
 
 
 def vector_search(
@@ -578,6 +599,7 @@ def multi_query_search(
     query_filter: Optional[models.Filter] = None,
     base_search_mode: str = "hybrid",
     query_count: int = 5,
+    rrf_k: int = 60,
 ):
     llm_provider = "openai" if embed_provider == "openai" else "local"
 
@@ -592,7 +614,7 @@ def multi_query_search(
         print(f"- {q}")
     print()
 
-    all_docs = []
+    rrf_scores = {}
 
     for q in queries:
         docs = _run_base_search(
@@ -605,27 +627,32 @@ def multi_query_search(
             base_search_mode=base_search_mode,
         )
 
-        all_docs.extend(docs)
+        for rank, doc in enumerate(docs, start=1):
+            key = (
+                doc.get("doc_id"),
+                doc.get("chunk_id"),
+                doc.get("point_id"),
+            )
 
-    unique_docs = {}
+            if key not in rrf_scores:
+                rrf_scores[key] = {
+                    "score": 0.0,
+                    "doc": doc,
+                    "best_rank": rank,
+                    "match_count": 0,
+                }
 
-    for doc in all_docs:
-        key = (
-            doc.get("doc_id"),
-            doc.get("chunk_id"),
-            doc.get("point_id"),
-        )
+            rrf_scores[key]["score"] += 1.0 / (rrf_k + rank)
+            rrf_scores[key]["best_rank"] = min(rrf_scores[key]["best_rank"], rank)
+            rrf_scores[key]["match_count"] += 1
 
-        if key not in unique_docs:
-            unique_docs[key] = doc
-
-        elif doc.get("score", 0) > unique_docs[key].get("score", 0):
-            unique_docs[key] = doc
-
-    final_docs = sorted(
-        unique_docs.values(),
-        key=lambda x: x.get("score", 0),
-        reverse=True,
-    )
+    final_docs = []
+    for entry in sorted(rrf_scores.values(), key=lambda x: x["score"], reverse=True):
+        updated_doc = dict(entry["doc"])
+        updated_doc["rrf_score"] = entry["score"]
+        updated_doc["score"] = entry["score"]
+        updated_doc["best_rank"] = entry["best_rank"]
+        updated_doc["matched_query_count"] = entry["match_count"]
+        final_docs.append(updated_doc)
 
     return final_docs[:top_k]
