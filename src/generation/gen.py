@@ -20,7 +20,12 @@ def get_client():
 def _build_context(docs: list) -> str:
     context_list = []
     for d in docs:
-        file_name = d.get('file_name', '파일명 정보 없음')
+        file_name = resolve_source_filename(d.get('file_name', '')) or '파일명 정보 없음'
+        page_number = d.get('page_number')
+        if page_number is None:
+            page_number = '페이지 정보 없음'
+        chunk_id = d.get('chunk_id') or d.get('id') or '청크 ID 정보 없음'
+
         doc_str = f"""
         [출처 파일: {file_name}]
         [페이지: {page_number}]
@@ -35,6 +40,63 @@ def _build_context(docs: list) -> str:
         """
         context_list.append(doc_str)
     return "\n\n".join(context_list)
+
+
+def _source_entries(docs):
+    source_entries = []
+    seen = set()
+
+    for doc in docs:
+        file_name = resolve_source_filename(doc.get("file_name", ""))
+        if not file_name:
+            continue
+
+        chunk_id = doc.get("chunk_id") or doc.get("id")
+        page_number = doc.get("page_number")
+        section_title = doc.get("section_title")
+        key = chunk_id or (file_name, page_number, section_title)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        source_entries.append({
+            "file_name": file_name,
+            "page_number": page_number,
+            "chunk_id": chunk_id,
+            "section_title": section_title,
+        })
+
+    return source_entries
+
+
+def _format_source_entry(entry):
+    parts = [entry["file_name"]]
+
+    if entry.get("page_number") is not None:
+        parts.append(f"p.{entry['page_number']}")
+
+    if entry.get("chunk_id"):
+        parts.append(f"chunk={entry['chunk_id']}")
+
+    return f"출처: {', '.join(str(part) for part in parts if part)}"
+
+
+def _strip_llm_source_section(answer):
+    pattern = r"\n*(?:\*{0,2}\s*)?\[?\s*출처\s*(?:상세|파일)\s*\]?\s*(?:\*{0,2})?\s*\n.*$"
+    return re.sub(pattern, "", answer.strip(), flags=re.DOTALL)
+
+
+def _append_source_files(answer, docs):
+    source_entries = _source_entries(docs)
+    if not source_entries:
+        return answer
+
+    source_block = "\n".join(
+        f"- {_format_source_entry(entry)}"
+        for entry in source_entries
+    )
+    return f"{_strip_llm_source_section(answer)}\n\n**출처 상세**\n{source_block}"
 
 
 def _build_user_prompt(query: str, context: str) -> str:
@@ -108,7 +170,7 @@ def generate_answer(
         "output": result.get("eval_count", 0),
         "total": result.get("prompt_eval_count", 0) + result.get("eval_count", 0),
     }
-    return answer, usage
+    return _append_source_files(answer, docs), usage
 
 
 # HyDE 및 contextual retrieval 용 LLM 모듈
