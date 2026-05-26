@@ -41,37 +41,51 @@ def ingest(
         return
 
     logger.info(f"총 {len(rag_data)}개의 데이터 벡터 DB 적재 시작 (컬렉션: {collection_name})")
-    
+
+    def _embed_and_build_points(batch_items: List[Dict[str, Any]], provider: str) -> Iterator[PointStruct]:
+        texts_to_embed = [_build_embed_text(item.get("metadata", {})) for item in batch_items]
+        
+        try:
+            dense_vectors = embed_text(texts_to_embed, provider=provider)
+            
+            for item, text, dense_vec in zip(batch_items, texts_to_embed, dense_vectors):
+                try:
+                    sparse_vec = embed_sparse_text(text)
+                    
+                    raw_id = item.get("id", str(uuid.uuid4()))
+                    point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, raw_id))
+
+                    yield PointStruct(
+                        id=point_id,
+                        vector={
+                            "dense": dense_vec,
+                            "sparse": sparse_vec,
+                        },
+                        payload=item.get("metadata", {})
+                    )
+                except Exception as e:
+                    chunk_id = item.get('id', 'Unknown')
+                    logger.error(f"데이터 포인트 생성 중 오류 발생 (ID: {chunk_id}): {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"배치 임베딩 처리 중 오류 발생: {e}")
+
+
     def generate_points() -> Iterator[PointStruct]:
         """
-        Qdrant에 업로드할 PointStruct 객체를 지연 생성(Yield)하는 제너레이터
+        데이터를 BATCH_SIZE 만큼 묶어서 _embed_and_build_points로 전달하는 제너레이터
         """
+        BATCH_SIZE = 64
+        items_batch = []
+        
         for item in rag_data:
-            try:
-                metadata = item.get("metadata", {})
-                text_to_embed = _build_embed_text(metadata)
+            items_batch.append(item)
+            if len(items_batch) == BATCH_SIZE:
+                yield from _embed_and_build_points(items_batch, embed_provider)
+                items_batch = []
                 
-                # 임베딩 생성 (Dense & Sparse)
-                dense_vector = embed_text(text_to_embed, provider=embed_provider)
-                sparse_vector = embed_sparse_text(text_to_embed)
-                
-                # 고유 ID 생성
-                raw_id = item.get("id", str(uuid.uuid4()))
-                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, raw_id))
-
-                yield PointStruct(
-                    id=point_id,
-                    vector={
-                        "dense": dense_vector,
-                        "sparse": sparse_vector,
-                    },
-                    payload=metadata
-                )
-            except Exception as e:
-                # 특정 청크의 임베딩 실패가 전체 적재 프로세스를 중단시키지 않도록 예외 처리
-                chunk_id = item.get('id', 'Unknown')
-                logger.error(f"데이터 포인트 생성 중 오류 발생 (ID: {chunk_id}): {e}")
-                continue
+        if items_batch:
+            yield from _embed_and_build_points(items_batch, embed_provider)
     
     try:
         # Qdrant 내장 배치 업로드

@@ -128,11 +128,17 @@ def load_metadata_db(
             row = metadata_df[metadata_df["파일명"].astype(str) == best_csv_file].iloc[0]
             actual_key = normalize_filename(actual_file)
 
+            raw_budget = row.get("사업 금액")
+            try:
+                budget_value = float(str(raw_budget).replace(",", "").replace("원", "").strip())
+            except (ValueError, TypeError):
+                budget_value = None
+
             metadata_map[actual_key] = {
                 "doc_id": str(row.get("공고 번호", "")).strip(),
                 "title": row.get("사업명"),
                 "organization": row.get("발주 기관"),
-                "budget": row.get("사업 금액"),
+                "budget": budget_value,
                 "announcement_date": row.get("공개 일자"),
                 "bid_start": row.get("입찰 참여 시작일"),
                 "bid_deadline": row.get("입찰 참여 마감일"),

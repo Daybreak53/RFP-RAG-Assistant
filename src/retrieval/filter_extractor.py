@@ -41,12 +41,14 @@ _PAT_LABEL = re.compile(
 _BUDGET_UNIT: Dict[str, float] = {
     "억":   100_000_000.0,
     "천만": 10_000_000.0,
+    "천":   10_000_000.0,
     "백만": 1_000_000.0,
+    "백":   1_000_000.0,
     "만":   10_000.0,
 }
 
 # 예산 및 날짜 관련 정규식/상수
-_MONEY_PAT = r"((?:\d+(?:\.\d+)?\s*[억천백만]\s*)+)"
+_MONEY_PAT = r"((?:\d+(?:\.\d+)?\s*(?:억|천만|백만|천|백|만)\s*)+)"
 _DATE_PAT = re.compile(r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*[일]?")
 _DATE_SEARCH_WINDOW_PREV = 40  # 키워드 앞 탐색 글자 수
 _DATE_SEARCH_WINDOW_NEXT = 50  # 키워드 뒤 탐색 글자 수
@@ -103,7 +105,7 @@ def _parse_budget_string(text: str) -> float:
     '1억 5천만' 등의 문자열을 숫자(float) 파싱
     """
     total = 0.0
-    matches = re.findall(r"(\d+(?:\.\d+)?)\s*([억천백만])", text)
+    matches = re.findall(r"(\d+(?:\.\d+)?)\s*(억|천만|백만|천|백|만)", text)
     for num_str, unit_str in matches:
         if num_str and unit_str in _BUDGET_UNIT:
             total += float(num_str) * _BUDGET_UNIT[unit_str]
@@ -183,12 +185,15 @@ def extract_filters_from_query(query: str) -> MetadataFilter:
     return flt
 
 
+def _to_start_of_day(date_str: Optional[str]) -> Optional[str]:
+    if date_str and len(date_str) == 10:
+        return f"{date_str}T00:00:00Z"
+    return date_str
+
+
 def _to_end_of_day(date_str: Optional[str]) -> Optional[str]:
-    """
-    날짜 문자열이 YYYY-MM-DD 형태인 경우, 23:59:59를 붙여 해당 일의 끝 시간으로 변환
-    """
-    if date_str and len(date_str) == 10: 
-        return f"{date_str} 23:59:59"
+    if date_str and len(date_str) == 10:
+        return f"{date_str}T23:59:59Z"
     return date_str
 
 
@@ -217,7 +222,7 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
         must_conditions.append(models.FieldCondition(
             key="announcement_date",
             range=models.DatetimeRange(
-                gte=flt.announcement_after, 
+                gte=_to_start_of_day(flt.announcement_after), 
                 lte=_to_end_of_day(flt.announcement_before)
             ),
         ))

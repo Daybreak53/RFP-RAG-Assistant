@@ -274,6 +274,8 @@ def mmr_search(
         if len(query_sims) > 1 and (query_sims.max() - query_sims.min()) > 1e-5:
             query_sims = (query_sims - query_sims.min()) / (query_sims.max() - query_sims.min())
 
+        sim_matrix = cosine_similarity(candidate_embeddings)
+
         selected_indices = []
         unselected_indices = list(range(len(points)))
 
@@ -287,13 +289,7 @@ def mmr_search(
             mmr_scores = []
             for unsel_idx in unselected_indices:
                 sim_to_query = query_sims[unsel_idx]
-                sim_to_selected = max(
-                    cosine_similarity(
-                        [candidate_embeddings[unsel_idx]],
-                        [candidate_embeddings[sel_idx]]
-                    )[0][0]
-                    for sel_idx in selected_indices
-                )
+                sim_to_selected = max(sim_matrix[unsel_idx, sel_idx] for sel_idx in selected_indices)
                 sim_to_selected_scaled = (sim_to_selected + 1) / 2
                 mmr_score = (lambda_param * sim_to_query) - ((1 - lambda_param) * sim_to_selected_scaled)
                 mmr_scores.append((mmr_score, unsel_idx))

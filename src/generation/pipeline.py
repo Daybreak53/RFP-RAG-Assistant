@@ -272,8 +272,6 @@ def rag_pipeline(
 
         # 콘솔 출력
         print("\n===== 🤖 답변 =====")
-        print(f"[질의 유형: {effective_query_type} | 검색: {effective_search_mode} | "
-                f"프롬프트: {effective_prompt_mode}]")
         print(answer)
         print("===================\n")
 
