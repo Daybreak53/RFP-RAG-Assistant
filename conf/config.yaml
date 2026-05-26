@@ -54,9 +54,9 @@ retrieval:
   search_mode: "keyword"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
 
   multi_query:
-  enabled: true             # true면 multi-query 사용 / search_mode를 base로 사용
-  method: "llm"             # LLM이 query 자동 분해
-  query_count: 5
+    enabled: true             # true면 multi-query 사용 / search_mode를 base로 사용
+    method: "llm"             # LLM이 query 자동 분해
+    query_count: 5
 
 
 # 6. 메타데이터 필터 조건
