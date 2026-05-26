@@ -1,31 +1,14 @@
-from __future__ import annotations
-
+import logging
 import re
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, fields
+from typing import Optional, List, Tuple, Dict
 
 from qdrant_client import models
 
+# 로거 설정
+logger = logging.getLogger(__name__)
 
-# 필터 조건 데이터 클래스
-@dataclass
-class MetadataFilter:
-    """검색에 사용할 메타데이터 필터 조건 집합"""
-    organization:        Optional[str]   = None
-    budget_min:          Optional[float] = None
-    budget_max:          Optional[float] = None
-    announcement_after:  Optional[str]   = None
-    announcement_before: Optional[str]   = None
-    bid_start_after:     Optional[str]   = None
-    bid_deadline_before: Optional[str]   = None
-    title_keyword:       Optional[str]   = None
-    doc_id:              Optional[str]   = None
-
-    def is_empty(self) -> bool:
-        return all(v is None for v in self.__dict__.values())
-    
-
-# 기관 suffix
+# 기관명 추출을 위한 정규식
 _SUFFIX = (
     r"(?:"
     r"특별자치도|특별자치시|특별시|광역시"
@@ -38,7 +21,6 @@ _SUFFIX = (
     r"|[시군구도부처원청사]"
     r")"
 )
-
 _ORG_CORE = r"[가-힣a-zA-Z0-9]{1,20}" + _SUFFIX
 
 _PAT_TRIGGER = re.compile(
@@ -55,25 +37,71 @@ _PAT_LABEL = re.compile(
     r"(" + _ORG_CORE + r")"                             
 )
 
-
-def _extract_organization(text: str) -> Optional[str]:
-    for pat in (_PAT_TRIGGER, _PAT_LABEL):
-        m = pat.search(text)
-        if m:
-            candidate = m.group(1).strip()
-            if len(candidate) >= 3:
-                return candidate
-    return None
-
-
-_BUDGET_UNIT: dict[str, float] = {
+# 예산 단위 변환 맵
+_BUDGET_UNIT: Dict[str, float] = {
     "억":   100_000_000.0,
     "천만": 10_000_000.0,
     "백만": 1_000_000.0,
     "만":   10_000.0,
 }
 
+# 예산 및 날짜 관련 정규식/상수
+_MONEY_PAT = r"((?:\d+(?:\.\d+)?\s*[억천백만]\s*)+)"
+_DATE_PAT = re.compile(r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*[일]?")
+_DATE_SEARCH_WINDOW_PREV = 40  # 키워드 앞 탐색 글자 수
+_DATE_SEARCH_WINDOW_NEXT = 50  # 키워드 뒤 탐색 글자 수
+
+
+@dataclass
+class MetadataFilter:
+    """
+    검색에 사용할 메타데이터 필터 조건 집합
+    """
+    organization: Optional[str] = None
+    budget_min: Optional[float] = None
+    budget_max: Optional[float] = None
+    announcement_after: Optional[str] = None
+    announcement_before: Optional[str] = None
+    bid_start_after: Optional[str] = None
+    bid_deadline_before: Optional[str] = None
+    title_keyword: Optional[str] = None
+    doc_id: Optional[str] = None
+
+    def is_empty(self) -> bool:
+        """
+        모든 필터 조건이 비어있는지(None) 확인
+        """
+        return all(getattr(self, field.name) is None for field in fields(self))
+
+    def merge_with(self, other: "MetadataFilter") -> "MetadataFilter":
+        """
+        현재 필터에 다른 필터(other) 병합
+        """
+        merged = MetadataFilter()
+        for field in fields(self):
+            self_val = getattr(self, field.name)
+            other_val = getattr(other, field.name)
+            setattr(merged, field.name, self_val if self_val is not None else other_val)
+        return merged
+
+
+def _extract_organization(text: str) -> Optional[str]:
+    """
+    텍스트에서 발주 기관명 추출
+    """
+    for pat in (_PAT_TRIGGER, _PAT_LABEL):
+        match = pat.search(text)
+        if match:
+            candidate = match.group(1).strip()
+            if len(candidate) >= 3:
+                return candidate
+    return None
+
+
 def _parse_budget_string(text: str) -> float:
+    """
+    '1억 5천만' 등의 문자열을 숫자(float) 파싱
+    """
     total = 0.0
     matches = re.findall(r"(\d+(?:\.\d+)?)\s*([억천백만])", text)
     for num_str, unit_str in matches:
@@ -82,87 +110,111 @@ def _parse_budget_string(text: str) -> float:
     return total if total > 0 else 0.0
 
 
-def _extract_budget(text: str) -> tuple[Optional[float], Optional[float]]:
-    budget_min = budget_max = None
-    
-    # 1개 이상의 숫자+단위 조합을 잡는 패턴 (예: "1억 5천만", "500만")
-    money_pat = r"((?:\d+(?:\.\d+)?\s*[억천백만]\s*)+)"
+def _extract_budget(text: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    텍스트에서 예산의 최소/최대 조건 추출
+    """
+    budget_min, budget_max = None, None
 
-    # A ~ B 
-    m = re.search(f"{money_pat}\\s*(?:~|에서|부터|∼)\\s*{money_pat}", text)
-    if m:
-        v1 = _parse_budget_string(m.group(1))
-        v2 = _parse_budget_string(m.group(2))
-        if v1 and v2:
-            return min(v1, v2), max(v1, v2)
+    # 범위 (A ~ B, A에서 B까지 등)
+    range_match = re.search(f"{_MONEY_PAT}\\s*(?:~|에서|부터|∼)\\s*{_MONEY_PAT}", text)
+    if range_match:
+        val1 = _parse_budget_string(range_match.group(1))
+        val2 = _parse_budget_string(range_match.group(2))
+        if val1 and val2:
+            return min(val1, val2), max(val1, val2)
 
-    # 이상 / 초과
-    m = re.search(f"{money_pat}\\s*(?:이상|초과|넘는)", text)
-    if m:
-        val = _parse_budget_string(m.group(1))
-        if val: budget_min = val
+    # 하한선 (이상 / 초과)
+    min_match = re.search(f"{_MONEY_PAT}\\s*(?:이상|초과|넘는)", text)
+    if min_match:
+        val = _parse_budget_string(min_match.group(1))
+        if val:
+            budget_min = val
 
-    # 이하 / 미만 / 이내
-    m = re.search(f"{money_pat}\\s*(?:이하|미만|이내)", text)
-    if m:
-        val = _parse_budget_string(m.group(1))
-        if val: budget_max = val
+    # 상한선 (이하 / 미만 / 이내)
+    max_match = re.search(f"{_MONEY_PAT}\\s*(?:이하|미만|이내)", text)
+    if max_match:
+        val = _parse_budget_string(max_match.group(1))
+        if val:
+            budget_max = val
 
     return budget_min, budget_max
 
 
-def _extract_date(text: str, keywords: list[str]) -> Optional[str]:
-    date_pat = re.compile(r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*[일]?")
-    for kw in keywords:
-        idx = text.find(kw)
+def _extract_date(text: str, keywords: List[str]) -> Optional[str]:
+    """
+    특정 키워드 근처에서 날짜(YYYY-MM-DD) 추출
+    """
+    for keyword in keywords:
+        idx = text.find(keyword)
         if idx == -1:
             continue
-        snippet = text[max(0, idx - 40): idx + 50]
-        m = date_pat.search(snippet)
-        if m:
-            y, mo, d = m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
-            return f"{y}-{mo}-{d}"
+            
+        # 키워드 앞뒤로 탐색 윈도우(부분 문자열) 생성
+        start_idx = max(0, idx - _DATE_SEARCH_WINDOW_PREV)
+        end_idx = idx + _DATE_SEARCH_WINDOW_NEXT
+        snippet = text[start_idx:end_idx]
+        
+        match = _DATE_PAT.search(snippet)
+        if match:
+            year = match.group(1)
+            month = match.group(2).zfill(2)
+            day = match.group(3).zfill(2)
+            return f"{year}-{month}-{day}"
+            
     return None
 
 
-# 통합 자동 추출
 def extract_filters_from_query(query: str) -> MetadataFilter:
+    """
+    자연어 질의에서 메타데이터 필터 조건들 자동 추출
+    """
     flt = MetadataFilter()
-    flt.organization               = _extract_organization(query)
-    flt.budget_min, flt.budget_max = _extract_budget(query)
-    flt.announcement_after         = _extract_date(query, ["공고일", "공개일", "공고 이후"])
-    flt.bid_deadline_before        = _extract_date(query, ["마감", "마감일", "입찰 마감", "기한"])
-    flt.bid_start_after            = _extract_date(query, ["입찰 시작", "시작일", "접수 시작"])
+    flt.organization = _extract_organization(query)
+    
+    budget_min, budget_max = _extract_budget(query)
+    flt.budget_min = budget_min
+    flt.budget_max = budget_max
+    
+    flt.announcement_after = _extract_date(query, ["공고일", "공개일", "공고 이후"])
+    flt.bid_deadline_before = _extract_date(query, ["마감", "마감일", "입찰 마감", "기한"])
+    flt.bid_start_after = _extract_date(query, ["입찰 시작", "시작일", "접수 시작"])
+    
     return flt
 
 
 def _to_end_of_day(date_str: Optional[str]) -> Optional[str]:
-    if date_str and len(date_str) == 10:  # "YYYY-MM-DD" 형태인 경우
+    """
+    날짜 문자열이 YYYY-MM-DD 형태인 경우, 23:59:59를 붙여 해당 일의 끝 시간으로 변환
+    """
+    if date_str and len(date_str) == 10: 
         return f"{date_str} 23:59:59"
     return date_str
 
 
-# MetadataFilter → Qdrant Filter 변환
 def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
+    """
+    MetadataFilter 객체를 Qdrant 검색용 models.Filter로 변환
+    """
     if flt is None or flt.is_empty():
         return None
 
-    must: list[models.Condition] = []
+    must_conditions: List[models.Condition] = []
 
     if flt.organization:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="organization",
             match=models.MatchText(text=flt.organization),
         ))
 
     if flt.budget_min is not None or flt.budget_max is not None:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="budget",
             range=models.Range(gte=flt.budget_min, lte=flt.budget_max),
         ))
 
     if flt.announcement_after or flt.announcement_before:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="announcement_date",
             range=models.DatetimeRange(
                 gte=flt.announcement_after, 
@@ -171,40 +223,30 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
         ))
 
     if flt.bid_start_after:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="bid_start",
             range=models.DatetimeRange(gte=flt.bid_start_after),
         ))
 
     if flt.bid_deadline_before:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="bid_deadline",
             range=models.DatetimeRange(lte=_to_end_of_day(flt.bid_deadline_before)),
         ))
 
     if flt.title_keyword:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="title",
             match=models.MatchText(text=flt.title_keyword),
         ))
 
     if flt.doc_id:
-        must.append(models.FieldCondition(
+        must_conditions.append(models.FieldCondition(
             key="doc_id",
             match=models.MatchValue(value=flt.doc_id),
         ))
 
-    return models.Filter(must=must) if must else None
-
-
-# 병합 및 최종 resolve
-def merge_filters(explicit: MetadataFilter, from_query: MetadataFilter) -> MetadataFilter:
-    merged = MetadataFilter()
-    for attr in merged.__dataclass_fields__:
-        setattr(merged, attr,
-                getattr(explicit, attr) if getattr(explicit, attr) is not None
-                else getattr(from_query, attr))
-    return merged
+    return models.Filter(must=must_conditions) if must_conditions else None
 
 
 def resolve_filter(
@@ -212,12 +254,28 @@ def resolve_filter(
     explicit_filter: Optional[MetadataFilter] = None,
     auto_extract: bool = True,
 ) -> Optional[models.Filter]:
-    base = explicit_filter or MetadataFilter()
-    merged = merge_filters(base, extract_filters_from_query(query)) if auto_extract else base
+    """
+    명시적(config 기반) 필터와 자연어 질의 기반 자동 추출 필터를 병합하여 
+    최종 Qdrant 필터 객체 반환
+    """
+    base_filter = explicit_filter or MetadataFilter()
+    
+    if auto_extract:
+        extracted_filter = extract_filters_from_query(query)
+        # 명시적 필터(base)가 자동 추출 필터(extracted)보다 우선순위를 가짐
+        merged_filter = base_filter.merge_with(extracted_filter)
+    else:
+        merged_filter = base_filter
 
-    qdrant_filter = build_qdrant_filter(merged)
+    qdrant_filter = build_qdrant_filter(merged_filter)
+    
     if qdrant_filter:
-        active = {k: v for k, v in merged.__dict__.items() if v is not None}
-        print(f"[필터 적용] {active}")
+        # 적용된 필터 조건만 추출하여 로깅
+        active_filters = {
+            field.name: getattr(merged_filter, field.name)
+            for field in fields(merged_filter)
+            if getattr(merged_filter, field.name) is not None
+        }
+        logger.info(f"검색 필터 적용됨: {active_filters}")
 
     return qdrant_filter
