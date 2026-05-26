@@ -2,11 +2,15 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
+from src.retrieval.retriever import retrieve
+from src.retrieval.filter_extractor import resolve_filter
+from src.generation.gen import generate_answer
+from langfuse import get_client
+from src.evaluation.evaluate import evaluate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 EVAL_DATASET_PATHS = (
-    # PROJECT_ROOT / "data" / "eval_dataset_hwp.json",
-    # PROJECT_ROOT / "data" / "eval_dataset_pdf.json",
     PROJECT_ROOT / "data" / "eval_dataset.json",
 )
 
@@ -28,6 +32,7 @@ def _load_reference_map():
         for record in records:
             key = _normalize_query(record.get("user_input"))
             reference = record.get("reference")
+
             if key and reference and key not in reference_map:
                 reference_map[key] = reference
 
@@ -42,6 +47,7 @@ def find_reference_for_query(query):
         return reference_map[normalized_query]
 
     compact_query = re.sub(r"\s+", "", normalized_query)
+
     for eval_query, reference in reference_map.items():
         if re.sub(r"\s+", "", eval_query) == compact_query:
             return reference
@@ -133,13 +139,14 @@ def rag_pipeline(
     auto_extract_filter: bool = True,
     run_eval=False,
     eval_model_name="gpt-4o-mini",
-    eval_is_local=False
+    eval_is_local=False,
+    use_contextual: bool = False,
+    use_multi_query: bool = False,
+    multi_query_count: int = 5,
+    conversation_history: list = None,
 ):
-    from src.retrieval.retriever import retrieve
-    from src.retrieval.filter_extractor import resolve_filter
-    from src.generation.gen import generate_answer
-    from langfuse import get_client
-
+    if conversation_history is None:
+        conversation_history = []
 
     langfuse = get_client()
 
@@ -164,7 +171,11 @@ def rag_pipeline(
             "rerank_enabled": rerank_enabled,
             "rerank_model": rerank_model,
             "filter_applied": qdrant_filter is not None,
-        }
+            "history_turns": len(conversation_history) // 2,
+            "use_contextual": use_contextual,
+            "use_multi_query": use_multi_query,
+            "multi_query_count": multi_query_count,
+        },
     ) as pipeline_span:
 
         with langfuse.start_as_current_observation(
@@ -181,7 +192,10 @@ def rag_pipeline(
                 "rerank_enabled": rerank_enabled,
                 "rerank_model": rerank_model,
                 "filter_applied": qdrant_filter is not None,
-            }
+                "use_contextual": use_contextual,
+                "use_multi_query": use_multi_query,
+                "multi_query_count": multi_query_count,
+            },
         ) as retrieval_span:
 
             docs = retrieve(
@@ -192,9 +206,9 @@ def rag_pipeline(
                 score_threshold=score_threshold,
                 search_mode=search_mode,
                 query_filter=qdrant_filter,
-                rerank_enabled=rerank_enabled,
-                candidate_k=candidate_k,
-                rerank_model=rerank_model,
+                use_contextual=use_contextual,
+                use_multi_query=use_multi_query,
+                multi_query_count=multi_query_count,
             )
 
             retrieval_span.update(output=docs)
@@ -205,7 +219,8 @@ def rag_pipeline(
             model=llm_model_name,
             input={
                 "query": query,
-                "retrieved_docs": docs
+                "retrieved_docs": docs,
+                "history_turns": len(conversation_history) // 2,
             }
         ) as generation:
 
@@ -213,7 +228,8 @@ def rag_pipeline(
                 query,
                 docs,
                 provider=llm_provider,
-                llm_model_name=llm_model_name
+                llm_model_name=llm_model_name,
+                conversation_history=conversation_history,
             )
 
             source_verification = _verify_answer_sources(answer, docs)
@@ -223,29 +239,27 @@ def rag_pipeline(
 
             generation.update(
                 output=answer,
-                usage_details=usage
+                usage_details=usage,
             )
+
+        updated_history = conversation_history + [
+            {"role": "user",      "content": query},
+            {"role": "assistant", "content": answer},
+        ]
 
         result = {
             "user_input": query,
             "response": answer,
             "retrieved_context": [d.get("content", "") for d in docs],
             "reference": reference if reference is not None else find_reference_for_query(query),
-            "source_verification": source_verification
+            "updated_history": updated_history,
         }
-
-        print(
-            "[source verification] "
-            f"status: {source_verification.get('overall_status')} | "
-            f"source_mode: {source_verification.get('source_mode')}"
-        )
 
         print("\n===== 답변 =====")
         print(answer)
         print("===============\n")
 
         if run_eval:
-            from src.evaluation.evaluate import evaluate
 
             print("--- [4] 평가 시작 ---")
 
@@ -253,7 +267,7 @@ def rag_pipeline(
                 name="ragas_evaluation",
                 as_type="generation",
                 model=eval_model_name,
-                input=result
+                input=result,
             ) as generation:
 
                 evaluate(
@@ -261,7 +275,7 @@ def rag_pipeline(
                     model_name=eval_model_name,
                     is_local=eval_is_local,
                     langfuse=langfuse,
-                    generation=generation
+                    generation=generation,
                 )
 
         pipeline_span.update(output=result)

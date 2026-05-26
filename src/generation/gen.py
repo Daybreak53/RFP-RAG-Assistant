@@ -9,6 +9,7 @@ load_dotenv()
 
 _client = None
 
+
 def get_client():
     global _client
     if _client is None:
@@ -16,73 +17,10 @@ def get_client():
     return _client
 
 
-def _source_entries(docs):
-    source_entries = []
-    seen = set()
-
-    for doc in docs:
-        file_name = resolve_source_filename(doc.get("file_name", ""))
-        if not file_name:
-            continue
-
-        chunk_id = doc.get("chunk_id") or doc.get("id")
-        page_number = doc.get("page_number")
-        section_title = doc.get("section_title")
-        key = chunk_id or (file_name, page_number, section_title)
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-        source_entries.append({
-            "file_name": file_name,
-            "page_number": page_number,
-            "chunk_id": chunk_id,
-            "section_title": section_title,
-        })
-
-    return source_entries
-
-
-def _format_source_entry(entry):
-    parts = [entry["file_name"]]
-
-    if entry.get("page_number") is not None:
-        parts.append(f"p.{entry['page_number']}")
-
-    if entry.get("chunk_id"):
-        parts.append(f"chunk={entry['chunk_id']}")
-
-    return f"출처: {', '.join(str(part) for part in parts if part)}"
-
-
-def _strip_llm_source_section(answer):
-    pattern = r"\n*(?:\*{0,2}\s*)?\[?\s*출처\s*(?:상세|파일)\s*\]?\s*(?:\*{0,2})?\s*\n.*$"
-    return re.sub(pattern, "", answer.strip(), flags=re.DOTALL)
-
-
-def _append_source_files(answer, docs):
-    source_entries = _source_entries(docs)
-    if not source_entries:
-        return answer
-
-    source_block = "\n".join(
-        f"- {_format_source_entry(entry)}"
-        for entry in source_entries
-    )
-    return f"{_strip_llm_source_section(answer)}\n\n**출처 상세**\n{source_block}"
-
-def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8b"):
-    #파일명을 답변에 사용할 수 있도록 메타데이터의 file_name 을 context 맨위로 추가
+def _build_context(docs: list) -> str:
     context_list = []
-    for i, d in enumerate(docs):
-        # file_name이 없을 경우를 대비해 기본값 설정
-        file_name = resolve_source_filename(d.get('file_name', '')) or '파일명 정보 없음'
-        page_number = d.get('page_number')
-        if page_number is None:
-            page_number = '페이지 정보 없음'
-        chunk_id = d.get('chunk_id') or d.get('id') or '청크 ID 정보 없음'
-        
+    for d in docs:
+        file_name = d.get('file_name', '파일명 정보 없음')
         doc_str = f"""
         [출처 파일: {file_name}]
         [페이지: {page_number}]
@@ -96,41 +34,55 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
         내용: {d.get('content','')}
         """
         context_list.append(doc_str)
-    
-    context = "\n\n".join(context_list)
+    return "\n\n".join(context_list)
 
 
-    #좀더 깔끔하게 보이도록 프롬프트 수정
-    prompt = f"""
-    당신은 RFP 분석 전문가입니다. 아래 [문서]를 근거로 [질문]에 답변하세요.
+def _build_user_prompt(query: str, context: str) -> str:
+    """현재 질문과 context로 단일 user 메시지를 구성합니다."""
+    return f"""당신은 RFP 분석 전문가입니다. 아래 [문서]를 근거로 [질문]에 답변하세요.
 
-    [규칙]
-    1. 근거 기반: [문서]에 없는 내용은 절대 답변하지 마세요(정보 부족 시 "정보를 찾을 수 없습니다" 출력).
-    2. 출처 명시: 답변 내용에 출처를 표기할 때는 "출처: 파일명, p.페이지, chunk=청크ID" 형식을 사용하세요.
-       파일명만 단독으로 쓰지 말고, 가능하면 페이지와 청크 ID를 함께 표기하세요.
-    3. 문서 구분: 여러 문서의 정보가 상이하면 절대 섞지 말고, 문서별로 나누어 서술하세요.
-    4. 출력 형식: 간략한 '사고 과정' 후 '답변:'을 제시하고, 마지막에 [출처 상세]를 작성하세요.
+[규칙]
+1. 근거 기반: [문서]에 없는 내용은 절대 답변하지 마세요(정보 부족 시 "정보를 찾을 수 없습니다" 출력).
+2. 출처 명시: 답변 내용에 [파일명]을 반드시 표기하세요.
+3. 문서 구분: 여러 문서의 정보가 상이하면 절대 섞지 말고, 문서별로 나누어 서술하세요.
+4. 출력 형식: 간략한 '사고 과정' 후 '답변:'을 제시하고, 마지막에 [출처 상세]를 작성하세요.
+5. 이전 대화가 있다면, 대화 맥락을 참고하여 답변하세요.
 
-    [출처 상세 형식]
-    - 출처: [파일명], p.[페이지], chunk=[청크 ID]
-    - [제목] / [기관] / [공고일] / [입찰기간]
-    - 핵심내용: (1줄 요약)
+[출처 상세 형식]
+- 파일명: [파일명]
+- [제목] / [기관] / [공고일] / [입찰기간]
+- 핵심내용: (1줄 요약)
 
-    [문서]
-    {context}
+[문서]
+{context}
 
-    [질문]
-    {query}
-    """
-    
+[질문]
+{query}"""
+
+
+def generate_answer(
+    query: str,
+    docs: list,
+    provider: str = "local",
+    llm_model_name: str = "exaone3.5:7.8b",
+    conversation_history: list = None,
+):
+    if conversation_history is None:
+        conversation_history = []
+
+    context = _build_context(docs)
+    user_prompt = _build_user_prompt(query, context)
+
+    # 공통 메시지 구성: system → 히스토리 → 현재 질문
+    system_message = {"role": "system", "content": "RFP 분석 전문가"}
+    messages = [system_message] + conversation_history + [{"role": "user", "content": user_prompt}]
+
+    # OpenAI
     if provider == "openai":
         client = get_client()
         res = client.chat.completions.create(
             model=llm_model_name,
-            messages=[
-                {"role": "system", "content": "RFP 분석 전문가"},
-                {"role": "user", "content": prompt}
-            ]
+            messages=messages,
         )
         answer = res.choices[0].message.content
         usage = {
@@ -140,17 +92,17 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
         }
         return _append_source_files(answer, docs), usage
 
+    # Local
     response = requests.post(
-        "http://localhost:11434/api/generate",
+        "http://localhost:11434/api/chat",
         json={
             "model": llm_model_name,
-            "prompt": prompt,
-            "stream": False
-        }
+            "messages": messages,
+            "stream": False,
+        },
     )
-
     result = response.json()
-    answer = _append_source_files(result["response"], docs)
+    answer = result["message"]["content"]
     usage = {
         "input": result.get("prompt_eval_count", 0),
         "output": result.get("eval_count", 0),
@@ -159,10 +111,7 @@ def generate_answer(query, docs, provider="local", llm_model_name="exaone3.5:7.8
     return answer, usage
 
 
-
-
-# HyDE 및 다목적 텍스트 생성을 위한 헬퍼 함수
-
+# HyDE 및 contextual retrieval 용 LLM 모듈
 def generate_pure_text(prompt: str, provider: str = "local") -> str:
     if provider == "openai":
         client = get_client()

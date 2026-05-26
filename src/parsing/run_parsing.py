@@ -7,7 +7,7 @@ from src.parsing.parser import (
     convert_chunks_to_rag_format,
 )
 
-def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, semantic_threshold=None, sem_rec_chunksize=None, sem_rec_overlap=None, sentences_per_chunk=None, sentence_overlap=None, match_threshold=None, ):
+def run_parsing(chunk_mode=None, use_contextual=None, chunk_size=None, chunk_overlap=None, semantic_threshold=None, sem_rec_chunksize=None, sem_rec_overlap=None, sentences_per_chunk=None, sentence_overlap=None, match_threshold=None, embed_provider=None):
     data_dir = "data"
     csv_path = "data/data_list.csv"
 
@@ -30,13 +30,16 @@ def run_parsing(chunk_mode=None, chunk_size=None, chunk_overlap=None, semantic_t
         chunk_mode=chunk_mode,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        
+
         semantic_threshold=semantic_threshold,
         sem_rec_chunksize=sem_rec_chunksize,
         sem_rec_overlap=sem_rec_overlap,
 
         sentences_per_chunk=sentences_per_chunk,
-        sentence_overlap=sentence_overlap
+        sentence_overlap=sentence_overlap,
+
+        embed_provider=embed_provider,
+        use_contextual=use_contextual
     )
     rag_data = convert_chunks_to_rag_format(chunks, metadata_map=metadata_map)
 
