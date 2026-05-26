@@ -128,6 +128,67 @@ def run_single_query(
         force_query_type      = force_type,
     )
 
+def run_multi_query(
+    cfg: DictConfig,
+    query_text: str,
+    conversation_history: Optional[list[dict[str, str]]] = None,
+) -> dict[str, Any]:
+    """
+    Multi-Query 기반 RAG 파이프라인 실행
+    """
+
+    embed_provider  = cfg.providers.embedding
+    llm_provider    = cfg.providers.llm
+    collection_name = cfg.vector_db.collection_names[embed_provider]
+    run_eval        = cfg.pipeline.run_eval
+
+    explicit_filter = _build_explicit_filter(cfg)
+    auto_extract    = not cfg.filter.no_auto
+
+    router_section   = _build_router_cfg(cfg)
+    use_router       = router_section.get("enabled", True) if router_section else True
+    use_llm_cls      = router_section.get("use_llm_classifier", False) if router_section else False
+    force_type       = router_section.get("force_query_type") if router_section else None
+
+    reference = None
+    if run_eval:
+        reference = find_reference_for_query(query_text)
+        if not reference:
+            logger.error("평가 모드는 eval_dataset.json에 등록된 질의에만 사용 가능합니다.")
+            raise SystemExit(
+                f"[평가 오류] 일치하는 질의가 없습니다.\n현재 질의: {query_text}"
+            )
+
+    return rag_pipeline(
+        collection_name       = collection_name,
+        embed_provider        = embed_provider,
+        llm_provider          = llm_provider,
+        llm_model_name        = cfg.providers.models.llm[llm_provider],
+        query                 = query_text,
+        top_k                 = cfg.retrieval.top_k,
+        score_threshold       = cfg.retrieval.score_threshold,
+
+        # multi-query 내부에서 사용할 검색 방식
+        search_mode           = cfg.retrieval.multi_query.base_search_mode,
+
+        reference             = reference,
+        metadata_filter       = explicit_filter,
+        auto_extract_filter   = auto_extract,
+        run_eval              = run_eval,
+        eval_model_name       = cfg.evaluation.model_name,
+        eval_is_local         = cfg.evaluation.is_local,
+        use_contextual        = cfg.parsing.use_contextual,
+        conversation_history  = conversation_history,
+        use_query_router      = use_router,
+        use_llm_classifier    = use_llm_cls,
+        router_cfg            = router_section,
+        force_query_type      = force_type,
+
+        # 핵심
+        use_multi_query       = True,
+        multi_query_count     = cfg.retrieval.multi_query.query_count,
+    )
+
 
 def run_chat_mode(cfg: DictConfig) -> None:
     """
@@ -178,10 +239,17 @@ def run_chat_mode(cfg: DictConfig) -> None:
         trimmed_history = _trim_history(conversation_history, max_turns)
 
         try:
-            result = run_single_query(
-                cfg                  = cfg,
-                query_text           = user_input,
-                conversation_history = trimmed_history,
+            if cfg.retrieval.multi_query.enabled:
+                result = run_multi_query(
+                    cfg                  = cfg,
+                    query_text           = user_input,
+                    conversation_history = trimmed_history,
+                )
+            else:
+                result = run_single_query(
+                    cfg                  = cfg,
+                    query_text           = user_input,
+                    conversation_history = trimmed_history,
             )
             conversation_history = result.get("updated_history", conversation_history)
 
