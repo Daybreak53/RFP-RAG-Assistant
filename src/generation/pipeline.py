@@ -10,7 +10,7 @@ from langfuse import get_client
 
 from src.retrieval.retriever import retrieve
 from src.retrieval.filter_extractor import resolve_filter, MetadataFilter
-from src.retrieval.query_router import route, RouteConfig, QueryType, PromptMode
+from src.retrieval.query_router import route, RouteConfig
 from src.generation.gen import generate_answer
 from src.evaluation.evaluate import evaluate
 
@@ -162,6 +162,7 @@ def rag_pipeline(
         query            = query,
         explicit_filter  = metadata_filter,
         auto_extract     = auto_extract_filter,
+        query_type       = effective_query_type,
     )
 
     # ──────────────────────────────────────────

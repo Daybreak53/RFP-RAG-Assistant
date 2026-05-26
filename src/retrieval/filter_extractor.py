@@ -18,7 +18,6 @@ _SUFFIX = (
     r"|재단법인|재단|공단|공사|협회|센터|위원회|영화제|조합"
     r"|대학교?|대학|의료원|병원|본부|기술원"
     r"|시청|군청|구청|도청"
-    r"|[시군구도부처원청사]"
     r")"
 )
 _ORG_CORE = r"[가-힣a-zA-Z0-9]{1,20}" + _SUFFIX
@@ -248,7 +247,7 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
     if flt.doc_id:
         must_conditions.append(models.FieldCondition(
             key="doc_id",
-            match=models.MatchValue(value=flt.doc_id),
+            match=models.MatchValue(value=str(flt.doc_id)),
         ))
 
     return models.Filter(must=must_conditions) if must_conditions else None
@@ -258,6 +257,7 @@ def resolve_filter(
     query: str,
     explicit_filter: Optional[MetadataFilter] = None,
     auto_extract: bool = True,
+    query_type: Optional[str] = None,
 ) -> Optional[models.Filter]:
     """
     명시적(config 기반) 필터와 자연어 질의 기반 자동 추출 필터를 병합하여 
@@ -267,6 +267,11 @@ def resolve_filter(
     
     if auto_extract:
         extracted_filter = extract_filters_from_query(query)
+
+        # 비교(comparative) 질의에서 단일 기관 필터링 방지
+        if query_type == "comparative":
+            extracted_filter.organization = None
+
         # 명시적 필터(base)가 자동 추출 필터(extracted)보다 우선순위를 가짐
         merged_filter = base_filter.merge_with(extracted_filter)
     else:

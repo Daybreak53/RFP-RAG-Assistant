@@ -328,7 +328,6 @@ def generate_answer(
             res = client.chat.completions.create(
                 model=llm_model_name,
                 messages=messages,
-                temperature=0.1,
             )
             answer = res.choices[0].message.content or ""
             usage = {
@@ -382,7 +381,6 @@ def generate_pure_text(
                     {"role": "system", "content": "당신은 행정 문서 및 RFP/공문서 작성 전문가입니다."},
                     {"role": "user",   "content": prompt},
                 ],
-                temperature=0.3,
             )
             return res.choices[0].message.content or ""
 

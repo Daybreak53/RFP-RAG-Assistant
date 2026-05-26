@@ -64,13 +64,6 @@ _RULES: list[tuple[QueryType, re.Pattern]] = [
         r"공고일|마감일|입찰\s*기간|일정"
     )),
 
-    # FACTUAL : 수치·제한·조건 등 단일 사실 조회
-    (QueryType.FACTUAL, re.compile(
-        r"얼마|몇\s*(?:페이지|점|개|부|명|일|주|달|년|건|%)|"
-        r"최대|최소|상한|하한|제한|기준|조건|몇\s*자|"
-        r"언제|날짜|기간|몇\s*점|합격|배점|가점|가중치"
-    )),
-
     # COMPARATIVE : 두 개 이상의 항목 비교
     (QueryType.COMPARATIVE, re.compile(
         r"비교|차이|대비|각각|어떻게\s*다|반면|"
@@ -99,6 +92,14 @@ _RULES: list[tuple[QueryType, re.Pattern]] = [
         r"장점|단점|장단점|강점|약점|문제점|"
         r"전략|방향|고려|판단|타당|의미|영향"
     )),
+
+    # FACTUAL : 수치·제한·조건 등 단일 사실 조회
+    (QueryType.FACTUAL, re.compile(
+        r"얼마|몇\s*(?:페이지|점|개|부|명|일|주|달|년|건|%)|"
+        r"최대|최소|상한|하한|제한|기준|조건|몇\s*자|"
+        r"언제|날짜|기간|몇\s*점|합격|배점|가점|가중치|"
+        r"무엇|유형|종류"
+    )),
 ]
 
 
@@ -126,7 +127,7 @@ _LLM_CLASSIFY_PROMPT = """\
 - filter_based  : 기관명·예산 범위·날짜 조건이 명시된 검색
 
 출력 형식 (JSON만, 다른 텍스트 금지):
-{"type": "<유형>", "reason": "<한 문장 이유>"}
+{{"type": "<유형>", "reason": "<한 문장 이유>"}}
 
 사용자 질의: {query}"""
 
