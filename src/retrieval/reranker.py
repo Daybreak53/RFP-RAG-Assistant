@@ -13,7 +13,8 @@ FALLBACK_RERANKER_MODEL = "BAAI/bge-reranker-large"
 @lru_cache(maxsize=2)
 def get_reranker(model_name: Optional[str] = None, max_length: int = 512) -> CrossEncoder:
     model_name = model_name or FALLBACK_RERANKER_MODEL
-    return CrossEncoder(model_name, max_length=max_length)
+    device = _get_predict_device() or "cpu"
+    return CrossEncoder(model_name, max_length=max_length, device=device)
 
 
 def _get_predict_device() -> Optional[str]:

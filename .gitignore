@@ -45,6 +45,7 @@ dist-ssr/
 build/
 out/
 /frontend/dist/
+eval_results/
 
 # 로그 파일
 npm-debug.log*

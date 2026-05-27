@@ -9,6 +9,7 @@ from src.parsing.run_parsing import run_parsing
 from src.vector_db.ingest import ingest
 from src.vector_db.vectordb import create_collection
 from src.generation.chat import run_chat_mode, run_single_query, run_multi_query
+from src.evaluation.retrieval_metrics import run_retrieval_eval
 
 # 로깅 설정
 logging.basicConfig(
@@ -34,11 +35,12 @@ def main(cfg: DictConfig) -> None:
         logger.info(f"파이프라인 설정 | 임베딩: {embed_provider} | LLM: {llm_provider}")
 
         # 실행 플래그 설정
-        run_all    = cfg.pipeline.run_all
-        run_parse  = run_all or cfg.pipeline.run_parse
-        run_ingest = run_all or cfg.pipeline.run_ingest
-        run_query  = run_all or cfg.pipeline.run_query
-        run_chat   = cfg.pipeline.run_chat
+        run_all             = cfg.pipeline.run_all
+        run_parse           = run_all or cfg.pipeline.run_parse
+        run_ingest          = run_all or cfg.pipeline.run_ingest
+        run_query           = run_all or cfg.pipeline.run_query
+        run_chat            = cfg.pipeline.run_chat
+        run_retrieval_eval_ = cfg.pipeline.get("run_retrieval_eval", False)
 
         rag_data = None
 
@@ -79,7 +81,10 @@ def main(cfg: DictConfig) -> None:
                 logger.info("벡터 DB 적재 완료")
 
         # [3] 질의 실행
-        if run_chat:
+        if run_retrieval_eval_:
+            logger.info("--- [3] Retrieval 일괄 평가 시작 ---")
+            run_retrieval_eval(cfg)
+        elif run_chat:
             logger.info("--- [3] 대화 모드 시작 ---")
             run_chat_mode(cfg)
         elif run_query:
@@ -93,7 +98,7 @@ def main(cfg: DictConfig) -> None:
                 logger.info("--- [3] 단일 질의 시작 ---")
                 run_single_query(cfg=cfg, query_text=query_text)
         else:
-            logger.info("질의(run_query) 및 대화(run_chat) 모드가 모두 비활성화되어 파이프라인을 종료합니다.")
+            logger.info("질의(run_query) / 대화(run_chat) / 검색평가(run_retrieval_eval) 모드가 모두 비활성화되어 파이프라인을 종료합니다.")
 
     except Exception as e:
         logger.error("파이프라인 실행 중 오류가 발생했습니다.", exc_info=True)
