@@ -153,7 +153,12 @@ def rag_pipeline(
         effective_multi_query  = use_multi_query
         effective_llm_provider = llm_provider
         effective_llm_model    = llm_model_name
-        logger.info("[Router] 비활성화 — config 기본값 사용")
+        logger.info("[Router] 비활성화 - config 기본값 사용")
+        logger.info(
+            f"[Retriever] search_mode={effective_search_mode} | "
+            f"top_k={effective_top_k} | "
+            f"threshold={effective_threshold}"
+        )
 
     # ──────────────────────────────────────────
     # Step 1. 메타데이터 필터 추출
