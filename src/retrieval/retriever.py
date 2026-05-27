@@ -10,6 +10,7 @@ from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
 from src.embeddings.sparse_embed import embed_sparse_text
 from src.generation.gen import generate_pure_text
+from langfuse import get_client
 
 # 로거 설정
 logger = logging.getLogger(__name__)

@@ -54,7 +54,7 @@ retrieval:
   search_mode: "keyword"    # "vector" | "keyword" | "hybrid" | "mmr" | "hyde"
 
   multi_query:
-    enabled: true             # true면 multi-query 사용 / search_mode를 base로 사용
+    enabled: false             # true면 multi-query 사용 / search_mode를 base로 사용
     method: "llm"             # LLM이 query 자동 분해
     query_count: 5
 
@@ -104,7 +104,7 @@ router:
       top_k: 5
       score_threshold: 0.5
       prompt_mode: "cot_few"
-      use_multi_query: true
+      use_multi_query: false
       # llm_provider: "openai"
       # llm_model: "gpt-5-nano"
 
@@ -127,7 +127,7 @@ router:
       top_k: 5
       score_threshold: 0.5
       prompt_mode: "cot_zero"
-      use_multi_query: true
+      use_multi_query: false
 
     filter_based:          # 필터형: 기관·예산·날짜 조건 포함
       search_mode: "keyword"
