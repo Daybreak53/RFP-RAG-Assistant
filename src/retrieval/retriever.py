@@ -122,7 +122,14 @@ def retrieve(
     if search_mode == "vector":
         return vector_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
     elif search_mode == "keyword":
-        return keyword_search(collection_name, query, top_k, query_filter)
+        results = keyword_search(collection_name, query, top_k, query_filter)
+        # keyword 결과가 없으면 vector로 재검색
+        if not results:
+            logger.info("keyword 검색 결과 없음 → vector 검색으로 폴백")
+            results = vector_search(
+                collection_name, embed_provider, query, top_k, score_threshold, query_filter
+            )
+        return results
     elif search_mode == "hybrid":
         return hybrid_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
     elif search_mode == "mmr":
@@ -230,7 +237,9 @@ def mmr_search(
     query_filter: Optional[models.Filter] = None,
     lambda_param: float = 0.5,
 ) -> List[Dict[str, Any]]:
-    """다양성을 고려한 MMR(Maximal Marginal Relevance) 검색"""
+    """
+    다양성을 고려한 MMR(Maximal Marginal Relevance) 검색
+    """
     dense_vector = embed_text(query, provider=embed_provider)
 
     try:

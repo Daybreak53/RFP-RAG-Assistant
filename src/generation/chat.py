@@ -27,16 +27,22 @@ def _build_explicit_filter(cfg: DictConfig) -> MetadataFilter:
     설정 객체에서 필터 조건을 추출하여 MetadataFilter 객체 생성
     """
     f = cfg.filter
+
+    def strip_quotes(v):
+        if isinstance(v, str):
+            return v.strip("'\"")
+        return v
+
     return MetadataFilter(
-        organization       = f.org,
-        budget_min         = f.budget_min,
-        budget_max         = f.budget_max,
-        announcement_after = f.announce_after,
-        announcement_before= f.announce_before,
-        bid_start_after    = f.bid_start_after,
-        bid_deadline_before= f.bid_deadline_before,
-        title_keyword      = f.title,
-        doc_id             = f.doc_id,
+        organization        = strip_quotes(f.org),
+        doc_id              = strip_quotes(f.doc_id),
+        title_keyword       = strip_quotes(f.title),
+        budget_min          = f.budget_min,
+        budget_max          = f.budget_max,
+        announcement_after  = strip_quotes(f.announce_after),
+        announcement_before = strip_quotes(f.announce_before),
+        bid_start_after     = strip_quotes(f.bid_start_after),
+        bid_deadline_before = strip_quotes(f.bid_deadline_before),
     )
 
 
@@ -76,6 +82,7 @@ def run_single_query(
     cfg: DictConfig,
     query_text: str,
     conversation_history: Optional[list[dict[str, str]]] = None,
+    use_query_rewrite=False
 ) -> dict[str, Any]:
     """
     단일 질문에 대해 RAG 파이프라인 실행
@@ -126,12 +133,14 @@ def run_single_query(
         use_llm_classifier    = use_llm_cls,
         router_cfg            = router_section,
         force_query_type      = force_type,
+        use_query_rewrite = use_query_rewrite
     )
 
 def run_multi_query(
     cfg: DictConfig,
     query_text: str,
     conversation_history: Optional[list[dict[str, str]]] = None,
+    use_query_rewrite: bool = False,
 ) -> dict[str, Any]:
     """
     Multi-Query 기반 RAG 파이프라인 실행
@@ -167,10 +176,7 @@ def run_multi_query(
         query                 = query_text,
         top_k                 = cfg.retrieval.top_k,
         score_threshold       = cfg.retrieval.score_threshold,
-
-        # multi-query 내부에서 사용할 검색 방식
         search_mode           = cfg.retrieval.search_mode,
-
         reference             = reference,
         metadata_filter       = explicit_filter,
         auto_extract_filter   = auto_extract,
@@ -183,10 +189,9 @@ def run_multi_query(
         use_llm_classifier    = use_llm_cls,
         router_cfg            = router_section,
         force_query_type      = force_type,
-
-        # 핵심
         use_multi_query       = True,
         multi_query_count     = cfg.retrieval.multi_query.query_count,
+        use_query_rewrite     = use_query_rewrite,
     )
 
 
@@ -244,12 +249,14 @@ def run_chat_mode(cfg: DictConfig) -> None:
                     cfg                  = cfg,
                     query_text           = user_input,
                     conversation_history = trimmed_history,
+                    use_query_rewrite    = True,
                 )
             else:
                 result = run_single_query(
                     cfg                  = cfg,
                     query_text           = user_input,
                     conversation_history = trimmed_history,
+                    use_query_rewrite    = True,
             )
             conversation_history = result.get("updated_history", conversation_history)
 
