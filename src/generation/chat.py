@@ -175,7 +175,7 @@ def run_multi_query(
         score_threshold       = cfg.retrieval.score_threshold,
 
         # multi-query 내부에서 사용할 검색 방식
-        search_mode           = cfg.retrieval.multi_query.get("base_search_mode", cfg.retrieval.search_mode),
+        search_mode           = cfg.retrieval.search_mode,
 
         candidate_k           = cfg.retrieval.get("candidate_k"),
         rerank_config         = rerank_config,
