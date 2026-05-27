@@ -91,28 +91,28 @@ router:
   # 질의 유형별 파라미터 Override
   overrides:
     factual:               # 사실 조회형: 정확한 수치·날짜
-      search_mode: "keyword"
-      top_k: 3
-      score_threshold: 0.0
-      prompt_mode: "basic"
-      use_multi_query: false
-      # llm_provider: "local"
-      # llm_model: "exaone3.5:7.8b"
-
-    comparative:           # 비교 분석형: 여러 문서 대조
       search_mode: "hybrid"
       top_k: 5
       score_threshold: 0.5
       prompt_mode: "cot_few"
       use_multi_query: true
-      # llm_provider: "openai"
-      # llm_model: "gpt-5-nano"
+      llm_provider: "openai"
+      llm_model: "gpt-5-nano"
+
+    comparative:           # 비교 분석형: 여러 문서 대조
+      search_mode: "hybrid"
+      top_k: 5
+      score_threshold: 0.5
+      prompt_mode: "cot_zero"
+      use_multi_query: true
+      llm_provider: "openai"
+      llm_model: "gpt-5-nano"
 
     summarization:         # 요약형: 문서 전반 이해
       search_mode: "vector"
       top_k: 4
       score_threshold: 0.55
-      prompt_mode: "basic"
+      prompt_mode: "cot_few"
       use_multi_query: false
 
     procedural:            # 절차형: 단계별 안내

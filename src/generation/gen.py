@@ -34,6 +34,26 @@ def get_openai_client() -> OpenAI:
         _OPENAI_CLIENT = OpenAI(api_key=api_key)
     return _OPENAI_CLIENT
 
+def _format_budget(value) -> str:
+    """
+    예산 float을 읽기 쉬운 한국어 형식으로 변환
+    """
+    if value is None or value == "N/A":
+        return "N/A"
+    try:
+        amount = int(float(value))
+        if amount >= 100_000_000:
+            억 = amount // 100_000_000
+            remainder = amount % 100_000_000
+            if remainder >= 10_000_000:
+                return f"{억}억 {remainder // 10_000_000}천만원 ({amount:,}원)"
+            return f"{억}억원 ({amount:,}원)"
+        elif amount >= 10_000:
+            return f"{amount // 10_000}만원 ({amount:,}원)"
+        return f"{amount:,}원"
+    except (ValueError, TypeError):
+        return str(value)
+
 
 def _build_context(docs: list[dict[str, Any]]) -> str:
     """
@@ -49,7 +69,7 @@ def _build_context(docs: list[dict[str, Any]]) -> str:
             f"[출처 파일: {file_name}]\n"
             f"- 제목: {d.get('title', 'N/A')}\n"
             f"- 기관: {d.get('organization', 'N/A')}\n"
-            f"- 예산: {d.get('budget', 'N/A')}\n"
+            f"- 예산: {_format_budget(d.get('budget'))}\n"
             f"- 공고일: {d.get('announcement_date', 'N/A')}\n"
             f"- 입찰기간: {d.get('bid_start', 'N/A')} ~ {d.get('bid_deadline', 'N/A')}\n"
             f"- 섹션: {d.get('section_title', 'N/A')}\n"
@@ -257,20 +277,24 @@ def _build_prompt_cot_few(query: str, context: str, query_type: str) -> str:
     )
 
     return f"""아래 [문서]를 근거로 [질문]에 답변하세요.
-[예시]를 참고하여 같은 형식으로 작성하되, 예시 내용을 그대로 복사하지 마세요.
 
 [규칙]
 - [문서]에 없는 내용은 절대 작성하지 마세요.
 - 출처 파일명을 답변 내에 반드시 표기하세요.
-- 이전 대화가 있다면 맥락을 반영하세요.
 
+[형식 예시 — 반드시 이 구조대로만 출력하세요]
 {example}
+
+위 예시와 동일한 구조(▶ 사고: / ▶ 답변: / [출처])로 아래 질문에 답변하세요.
+예시의 실제 수치·내용은 절대 사용하지 말고, 형식만 따르세요.
 
 [문서]
 {context}
 
 [질문]
-{query}"""
+{query}
+
+▶ 사고:"""
 
 
 def build_user_prompt(

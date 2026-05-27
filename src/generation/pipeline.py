@@ -11,7 +11,7 @@ from langfuse import get_client
 from src.retrieval.retriever import retrieve
 from src.retrieval.filter_extractor import resolve_filter, MetadataFilter
 from src.retrieval.query_router import route, RouteConfig
-from src.generation.gen import generate_answer
+from src.generation.gen import generate_answer, generate_pure_text
 from src.evaluation.evaluate import evaluate
 
 # 로거 설정
@@ -49,6 +49,106 @@ def _load_reference_map() -> dict[str, str]:
         except Exception as e:
             logger.error(f"평가 데이터셋 로드 오류: {e}")
     return reference_map
+
+
+def _normalize_spaces(text: str) -> str:
+    """
+    비교용 공백 제거 정규화
+    """
+    return re.sub(r"\s+", "", text)
+
+
+ambiguous_markers = [
+        "첫 번째", "두 번째", "세 번째", "네 번째", "다섯 번째",
+        "첫째", "둘째", "셋째",
+        "1번째", "2번째", "3번째",
+        "앞서", "위의", "위에서", "아래의", "이전",
+        "방금", "아까", "직전", "바로 전",
+
+        "다시", "재설명", "한 번 더", "좀 더", "더 자세히",
+
+        "그 사업", "이 사업", "해당 사업", "본 사업", "동 사업",
+        "그 용역", "이 용역", "해당 용역",
+        "그 RFP", "이 RFP", "해당 RFP",
+        "그 공고", "이 공고", "해당 공고",
+        "그 문서", "이 문서", "해당 문서",
+        "그 제안요청서", "해당 제안요청서",
+
+        "그 기관", "이 기관", "해당 기관",
+        "그 발주처", "해당 발주처",
+        "거기서", "거기에서",
+
+        "그 내용", "이 내용", "해당 내용",
+        "그 조건", "이 조건", "해당 조건",
+        "그 금액", "이 금액", "해당 금액",
+        "그 예산", "이 예산", "해당 예산",
+        "그 일정", "이 일정", "해당 일정",
+        "그 결과", "이 결과", "해당 결과",
+        "그 항목", "이 항목", "해당 항목",
+        "그 기준", "이 기준", "해당 기준",
+
+        "그럼", "그렇다면", "그렇면",
+        "그래서", "따라서", "그 경우",
+        "다른 건", "다른 것은"
+    ]
+
+_AMBIGUOUS_MARKERS_NORMALIZED = [_normalize_spaces(m) for m in ambiguous_markers]
+
+
+def _is_ambiguous(query: str, normalized_markers: list[str]) -> bool:
+    query_no_space = _normalize_spaces(query)
+    for marker_no_space in normalized_markers:
+        if marker_no_space in query_no_space:
+            return True
+    return False
+
+
+def _rewrite_query_with_history(
+    query: str,
+    history: list[dict[str, str]],
+    provider: str,
+    model: str,
+) -> str:
+    """
+    대화 히스토리를 참고하여 모호한 쿼리를 독립적인 검색 쿼리로 재작성
+    """
+    if not history:
+        return query
+
+    if not _is_ambiguous(query, _AMBIGUOUS_MARKERS_NORMALIZED):
+        return query
+
+    history_text = "\n".join(
+        f"{'사용자' if m['role'] == 'user' else 'AI'}: {m['content'][:200]}"
+        for m in history[-4:]  # 최근 2턴만 참고
+    )
+    prompt = f"""아래 대화 히스토리를 참고하여, 마지막 질문을 재작성하세요.
+
+[재작성 규칙]
+1. "그", "해당", "이", "그것", "거기", "첫 번째", "두 번째" 등 모든 지시어와 대명사를 히스토리에서 찾은 구체적인 고유명사(사업명, 기관명 등)로 반드시 교체하세요.
+2. 재작성된 문장에 지시어나 대명사가 하나도 남아있으면 안 됩니다.
+3. 재작성된 질문만 출력하고 다른 설명은 하지 마세요.
+
+[올바른 예시]
+- 원본: "그 사업의 예산은?" → 재작성: "서울시 지도정보 플랫폼 고도화 용역 사업의 예산은?"
+- 원본: "두 번째 답을 다시 설명해줘" → 재작성: "서울시 지도정보 플랫폼 사업의 예산을 다시 설명해줘"
+
+[대화 히스토리]
+{history_text}
+
+[재작성할 질문]
+{query}
+
+[재작성 결과]"""
+
+    try:
+        rewritten = generate_pure_text(prompt, provider=provider, llm_model_name=model)
+        rewritten = rewritten.strip()
+        logger.info(f"[QueryRewrite] '{query}' → '{rewritten}'")
+        return rewritten if rewritten else query
+    except Exception as e:
+        logger.warning(f"쿼리 재작성 실패, 원본 사용: {e}")
+        return query
 
 
 def find_reference_for_query(query: str) -> str:
@@ -89,6 +189,7 @@ def rag_pipeline(
     use_llm_classifier:  bool          = False,
     router_cfg:          Optional[dict] = None,
     force_query_type:    Optional[str]  = None,
+    use_query_rewrite: bool = False,
 ) -> dict[str, Any]:
     """
     주어진 설정과 질의를 바탕으로 검색, 답변 생성, (선택적) 평가를 수행하는 메인 RAG 파이프라인
@@ -198,6 +299,12 @@ def rag_pipeline(
         # ──────────────────────────────────────
         # Step 2. 문서 검색
         # ──────────────────────────────────────
+        effective_query = query
+        if use_query_rewrite and history:
+            effective_query = _rewrite_query_with_history(
+                query, history, effective_llm_provider, effective_llm_model
+            )
+
         with langfuse.start_as_current_observation(
             name    = "retrieval",
             as_type = "span",
@@ -213,7 +320,7 @@ def rag_pipeline(
             docs = retrieve(
                 collection_name  = collection_name,
                 embed_provider   = embed_provider,
-                query            = query,
+                query            = effective_query,
                 top_k            = effective_top_k,
                 score_threshold  = effective_threshold,
                 search_mode      = effective_search_mode,
