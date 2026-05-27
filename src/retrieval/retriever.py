@@ -126,7 +126,7 @@ def retrieve(
     elif search_mode == "hybrid":
         return hybrid_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
     elif search_mode == "mmr":
-        return mmr_search(collection_name, embed_provider, query, top_k, query_filter)
+        return mmr_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
     elif search_mode == "hyde":
         return hyde_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
     else:
@@ -226,6 +226,7 @@ def mmr_search(
     embed_provider: str,
     query: str,
     top_k: int,
+    score_threshold: Optional[float] = None,
     query_filter: Optional[models.Filter] = None,
     lambda_param: float = 0.5,
 ) -> List[Dict[str, Any]]:
@@ -238,7 +239,7 @@ def mmr_search(
             query=dense_vector,
             using="dense",
             limit=top_k * 4,  # MMR 계산을 위해 더 많은 후보군 검색
-            score_threshold=None,
+            score_threshold=score_threshold,
             query_filter=query_filter,
             with_vectors=True,
             with_payload=True,
@@ -250,7 +251,7 @@ def mmr_search(
             collection_name=collection_name,
             query=dense_vector,
             limit=top_k * 4,
-            score_threshold=None,
+            score_threshold=score_threshold,
             query_filter=query_filter,
             with_vectors=True,
             with_payload=True,

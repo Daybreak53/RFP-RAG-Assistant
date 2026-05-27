@@ -53,11 +53,19 @@ def embed_text(
                 model=DEFAULT_OPENAI_MODEL,
                 input=texts
             )
-            return [d.embedding for d in response.data]
+
+            if isinstance(texts, str):
+                texts = [texts]
+                single = True
+            else:
+                single = False
+
+            result = [d.embedding for d in response.data]
+            return result[0] if single else result
         
         elif provider == "local":
             model = get_dense_model()
-            return model.encode(texts, batch_size=len(texts)).tolist()
+            return model.encode(texts, batch_size=len(texts), show_progress_bar=False).tolist()
         
         else:
             raise ValueError(f"지원하지 않는 임베딩 provider 입니다: '{provider}'")

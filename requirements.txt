@@ -67,8 +67,6 @@ distro==1.9.0
     #   openai
 docstring-parser==0.18.0
     # via instructor
-dotenv==0.9.9
-    # via -r requirements.in
 filelock==3.29.0
     # via
     #   datasets
@@ -351,7 +349,6 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
     # via
     #   -r requirements.in
-    #   dotenv
     #   pydantic-settings
 pywin32==311
     # via portalocker
