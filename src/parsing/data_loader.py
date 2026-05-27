@@ -1,4 +1,6 @@
 import logging
+import unicodedata
+
 from pathlib import Path
 from typing import List, Union
 
@@ -39,7 +41,8 @@ def load_documents(data_dir: Union[str, Path]) -> List[Document]:
 
         # 지원하는 확장자인지 검사
         if ext in loader_mapping:
-            logger.info(f"{ext.upper()[1:]} 로드 중: {file_path.name}")
+            safe_name = unicodedata.normalize('NFC', file_path.name)
+            logger.info(f"{ext.upper()[1:]} 로드 중: {safe_name}")
             loader_class = loader_mapping[ext]
             
             try:
