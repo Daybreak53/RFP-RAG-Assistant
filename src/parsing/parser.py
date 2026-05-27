@@ -1,21 +1,38 @@
-"""
-문서 청킹, chunk size 실험, RAG JSON 형식 변환 모듈입니다.
-"""
+import logging
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-import os
-import re
 import pandas as pd
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_experimental.text_splitter import SemanticChunker
-from langchain_core.documents import Document
+
 from src.parsing.meta_db import normalize_filename
 from src.generation.gen import generate_pure_text
 
+# 로거 설정
+logger = logging.getLogger(__name__)
 
-embedding = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small") #semantic chunking 용 임베딩 모델(경량화되어있음)
 
-def generate_chunk_context(whole_doc_text: str, chunk_content: str, provider: str = "local") -> str:
+@lru_cache(maxsize=1)
+def get_semantic_embedding() -> HuggingFaceEmbeddings:
+    """
+    Semantic 청킹에 사용되는 경량 임베딩 모델을 지연 로드
+    """
+    logger.info("Semantic chunking을 위한 로컬 임베딩 모델 로드 중...")
+    return HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small")
+
+
+def generate_chunk_context(
+    whole_doc_text: str, 
+    chunk_content: str, 
+    provider: str = "local"
+) -> str:
+    """
+    전체 문서 맥락을 바탕으로 현재 청크의 요약된 맥락(Context)을 생성
+    """
     prompt = f"""너는 대한민국 공공기관 및 재단법인의 '입찰공고문'과 '제안요청서(RFP)' 분석 전문가이다.
 주어진 [전체 문서]의 거시적 맥락을 바탕으로 해당 청크가 문서 내에서 어떤 역할이나 규정을 담고 있는지 1~2문장의 정제된 행정학적 문장으로 요약해라.
 
@@ -36,65 +53,100 @@ def generate_chunk_context(whole_doc_text: str, chunk_content: str, provider: st
         context_summary = generate_pure_text(prompt, provider=provider)
         return context_summary.strip()
     except Exception as e:
-        print(f"[경고] Contextual 맥락 생성 실패로 빈 문자열을 반환합니다. 에러: {e}")
+        logger.warning(f"Contextual 맥락 생성 실패로 빈 문자열을 반환합니다. 에러: {e}")
         return ""
 
-def inject_context_to_document(chunk_doc, whole_doc_text: str, provider: str) -> None:
-    # 1. 맥락 요약문 생성
+
+def inject_context_to_document(
+    chunk_doc: Document, 
+    whole_doc_text: str, 
+    provider: str
+) -> None:
+    """
+    생성된 맥락 요약문을 원본 청크 내용 상단에 주입
+    """
     context_summary = generate_chunk_context(whole_doc_text, chunk_doc.page_content, provider=provider)
     
-    # 2. content 가공 및 복사)
     if context_summary:
-        print(f"[HyDE-Context 생성 문장]: {context_summary}")
+        logger.debug(f"Context 생성 완료: {context_summary[:30]}...")
         chunk_doc.page_content = f"[본 청크의 행정 맥락: {context_summary}]\n\n{chunk_doc.page_content}"
         chunk_doc.metadata["context_summary"] = context_summary
     else:
         chunk_doc.metadata["context_summary"] = "맥락 없음"
 
 
-def create_chunks(documents, chunk_mode="recursive", chunk_size=500, chunk_overlap=50, semantic_threshold=90, sem_rec_chunksize=1200, sem_rec_overlap=120, sentences_per_chunk=3, sentence_overlap=1, embed_provider="local", use_contextual=False):
+def create_chunks(
+    documents: List[Document], 
+    chunk_mode: str = "recursive", 
+    chunk_size: int = 500, 
+    chunk_overlap: int = 50, 
+    semantic_threshold: int = 90, 
+    sem_rec_chunksize: int = 1200, 
+    sem_rec_overlap: int = 120, 
+    sentences_per_chunk: int = 3, 
+    sentence_overlap: int = 1, 
+    embed_provider: str = "local", 
+    use_contextual: bool = False
+) -> List[Document]:
+    """
+    설정된 모드에 따라 문서 청킹
+    """
+    logger.info(f"문서 청킹 시작 (모드: {chunk_mode}, 문서 수: {len(documents)})")
+    
     if chunk_mode == "recursive":
-        return recursive_chunk(documents, chunk_size, chunk_overlap, use_contextual, embed_provider=embed_provider)
+        return recursive_chunk(documents, chunk_size, chunk_overlap, use_contextual, embed_provider)
     elif chunk_mode == "semantic":
-        return semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap, use_contextual, embed_provider=embed_provider)
+        return semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap, use_contextual, embed_provider)
     elif chunk_mode == "sentence":
-        return sentence_chunk(documents, sentences_per_chunk, sentence_overlap, use_contextual, embed_provider=embed_provider)
+        return sentence_chunk(documents, sentences_per_chunk, sentence_overlap, use_contextual, embed_provider)
     else:
         raise ValueError(f"지원하지 않는 chunk_mode: '{chunk_mode}'")
 
-def recursive_chunk(documents, chunk_size, chunk_overlap, use_contextual, embed_provider):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-    )
+
+def recursive_chunk(
+    documents: List[Document], 
+    chunk_size: int, 
+    chunk_overlap: int, 
+    use_contextual: bool, 
+    embed_provider: str
+) -> List[Document]:
+    """
+    재귀적 문자 분할(Recursive) 방식으로 청킹
+    """
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     llm_provider = "openai" if embed_provider == "openai" else "local"
     final_chunks = []
 
     for doc in documents:
         split_chunks = splitter.split_documents([doc])
-        
         for chunk in split_chunks:
-            # use_contextual 플래그가 True일 때만 LLM을 호출하여 맥락 주입
             if use_contextual:
                 inject_context_to_document(chunk, doc.page_content, provider=llm_provider)
             else:
-                # 기능을 껐을 때도 구조를 맞추기 위해 메타데이터만 기본값 세팅
                 chunk.metadata["context_summary"] = "기능 꺼짐"
-                
             final_chunks.append(chunk)
             
     return final_chunks
 
-#의미기반으로만 나누면 자꾸 OPENAI의 8192개 토큰을 넘어가버려 semantic + recursive 구조로 변경
-def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_overlap, use_contextual, embed_provider):
 
+def semantic_chunk(
+    documents: List[Document], 
+    semantic_threshold: int, 
+    sem_rec_chunksize: int, 
+    sem_rec_overlap: int, 
+    use_contextual: bool, 
+    embed_provider: str
+) -> List[Document]:
+    """
+    의미론적(Semantic) 분할을 우선 수행하고, 
+    지나치게 긴 청크는 재귀적(Recursive)으로 다시 분할
+    """
+    embedding_model = get_semantic_embedding()
     splitter = SemanticChunker(
-        _get_embedding(),
+        embedding_model,
         breakpoint_threshold_type="percentile",
         breakpoint_threshold_amount=semantic_threshold
     )
-    semantic_chunks = splitter.split_documents(documents)
-
     safe_splitter = RecursiveCharacterTextSplitter(
         chunk_size=sem_rec_chunksize,
         chunk_overlap=sem_rec_overlap
@@ -107,6 +159,7 @@ def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_ove
         semantic_chunks = splitter.split_documents([doc])
         
         for chunk in semantic_chunks:
+            # 토큰 한도 초과 방지 (4000자 이상 시 강제 분할)
             if len(chunk.page_content) > 4000:
                 split_chunks = safe_splitter.split_documents([chunk])
                 for s_chunk in split_chunks:
@@ -125,29 +178,35 @@ def semantic_chunk(documents, semantic_threshold, sem_rec_chunksize, sem_rec_ove
     return final_chunks
 
 
-def sentence_chunk(documents, sentences_per_chunk, sentence_overlap, use_contextual, embed_provider):
+def sentence_chunk(
+    documents: List[Document], 
+    sentences_per_chunk: int, 
+    sentence_overlap: int, 
+    use_contextual: bool, 
+    embed_provider: str
+) -> List[Document]:
+    """
+    문장 단위로 문서를 분할하여 묶기
+    """
     chunks = []
     llm_provider = "openai" if embed_provider == "openai" else "local"
 
+    splitter = RecursiveCharacterTextSplitter(
+        separators=["\n\n", "\n", ". ", " "],
+        chunk_size=400,
+        chunk_overlap=50
+    )
+
     for doc in documents:
-        #sentence 청킹 수정사항.
-        splitter = RecursiveCharacterTextSplitter(
-            separators=["\n\n", "\n", ". ", " "],
-            chunk_size=400,
-            chunk_overlap=50
-        )
-        
         split_docs = splitter.split_documents([doc])
-        
         step = max(1, sentences_per_chunk - sentence_overlap)
         
         for i in range(0, len(split_docs), step):
-            chunk_group = split_docs[i:i+sentences_per_chunk]
+            chunk_group = split_docs[i:i + sentences_per_chunk]
             if not chunk_group:
                 continue
                 
             chunk_text = " ".join([d.page_content.strip() for d in chunk_group])
-            
             if len(chunk_text) > 4000:
                 chunk_text = chunk_text[:4000]
                 
@@ -163,240 +222,109 @@ def sentence_chunk(documents, sentences_per_chunk, sentence_overlap, use_context
     return chunks
 
 
-def chunk_size_experiment(documents, start=100, end=1000, step=100, overlap_ratio=0.1):
-    results = []
-
-    for chunk_size in range(start, end + 1, step):
-        chunk_overlap = int(chunk_size * overlap_ratio)
-        chunks = create_chunks(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-        results.append({
-            "chunk_size": chunk_size,
-            "chunk_overlap": chunk_overlap,
-            "num_chunks": len(chunks),
-        })
-
-        print("=" * 50)
-        print("chunk_size:", chunk_size)
-        print("chunk_overlap:", chunk_overlap)
-        print("num_chunks:", len(chunks))
-
-    return pd.DataFrame(results)
-
-#밑에 2개의 실험은 어디서 함수 적용하는지 모르겠어서 일단 만들어놨습니다.
-
-#semantic_chuink 기법 threshold 별 실험
-"""
-def semantic_chunk_experiment(
-    documents,
-    thresholds=[70, 80, 90, 95]
-):
-    results = []
-
-    for threshold in thresholds:
-
-        chunks = create_chunks(
-            documents,
-            chunk_mode="semantic",
-            semantic_threshold=threshold
-        )
-
-        chunk_lengths = [
-            len(chunk.page_content)
-            for chunk in chunks
-        ]
-
-        results.append({
-            "semantic_threshold": threshold,
-            "num_chunks": len(chunks),
-            "avg_chunk_length": (
-                sum(chunk_lengths) / len(chunk_lengths)
-                if chunk_lengths else 0
-            ),
-            "max_chunk_length": (
-                max(chunk_lengths)
-                if chunk_lengths else 0
-            ),
-            "min_chunk_length": (
-                min(chunk_lengths)
-                if chunk_lengths else 0
-            ),
-        })
-
-        print("=" * 50)
-        print("semantic_threshold:", threshold)
-        print("num_chunks:", len(chunks))
-        print("avg_chunk_length:", results[-1]["avg_chunk_length"])
-
-    return pd.DataFrame(results)
-"""
-
-#sentence_chunk 기법 사이즈, 오버랩 별 실험
-"""
-def sentence_chunk_experiment(
-    documents,
-    sentence_sizes=[3, 5, 7],
-    overlaps=[1, 2]
-):
-    results = []
-
-    for sentence_size in sentence_sizes:
-
-        for overlap in overlaps:
-
-            if overlap >= sentence_size:
-                continue
-
-            chunks = create_chunks(
-                documents,
-                chunk_mode="sentence",
-                sentences_per_chunk=sentence_size,
-                sentence_overlap=overlap
-            )
-
-            chunk_lengths = [
-                len(chunk.page_content)
-                for chunk in chunks
-            ]
-
-            results.append({
-                "sentences_per_chunk": sentence_size,
-                "sentence_overlap": overlap,
-                "num_chunks": len(chunks),
-                "avg_chunk_length": (
-                    sum(chunk_lengths) / len(chunk_lengths)
-                    if chunk_lengths else 0
-                ),
-                "max_chunk_length": (
-                    max(chunk_lengths)
-                    if chunk_lengths else 0
-                ),
-                "min_chunk_length": (
-                    min(chunk_lengths)
-                    if chunk_lengths else 0
-                ),
-            })
-
-            print("=" * 50)
-            print("sentences_per_chunk:", sentence_size)
-            print("sentence_overlap:", overlap)
-            print("num_chunks:", len(chunks))
-            print("avg_chunk_length:", results[-1]["avg_chunk_length"])
-
-    return pd.DataFrame(results)
-"""
-
-def convert_chunks_to_rag_format(chunks, metadata_map=None):
+def convert_chunks_to_rag_format(
+    chunks: List[Document], 
+    metadata_map: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
+    """
+    생성된 Chunk Document 리스트를 Vector DB 적재용 JSON(Dict) 포맷으로 변환
+    """
     rag_data = []
     chunk_count_map = {}
+    metadata_map = metadata_map or {}
 
     for chunk in chunks:
-        file_name = _resolve_chunk_source_filename(chunk.metadata)
-        if not file_name:
-            raise ValueError("청크 메타데이터에서 원본 HWP/PDF 파일명을 찾을 수 없습니다.")
-
+        source_path = chunk.metadata.get("source", "")
+        file_name = Path(source_path).name
         file_key = normalize_filename(file_name)
 
-        csv_meta = metadata_map.get(file_key, {}) if metadata_map else {}
-        doc_id = csv_meta.get("doc_id", os.path.splitext(file_name)[0])
-        file_type = os.path.splitext(file_name)[1].replace(".", "").lower()
+        csv_meta = metadata_map.get(file_key, {})
+        doc_id = str(csv_meta.get("doc_id", Path(file_name).stem))
 
-        if doc_id not in chunk_count_map:
-            chunk_count_map[doc_id] = 0
-
-        chunk_count_map[doc_id] += 1
+        chunk_count_map[doc_id] = chunk_count_map.get(doc_id, 0) + 1
         chunk_id = f"{doc_id}_{chunk_count_map[doc_id]:04d}"
+
+        # 파일 확장자 추출 (ex: .pdf -> pdf)
+        file_ext = Path(file_name).suffix.replace(".", "").lower()
 
         item = {
             "id": chunk_id,
             "metadata": {
                 "doc_id": doc_id,
                 "chunk_id": chunk_id,
-                "title": csv_meta.get("title", os.path.splitext(file_name)[0]),
-                "organization": csv_meta.get("organization", None),
-                "budget": csv_meta.get("budget", None),
-                "announcement_date": csv_meta.get("announcement_date", None),
-                "bid_start": csv_meta.get("bid_start", None),
-                "bid_deadline": csv_meta.get("bid_deadline", None),
-                "page_number": chunk.metadata.get("page", None),
-                "section_title": csv_meta.get("section_title", None),
+                "title": csv_meta.get("title", Path(file_name).stem),
+                "organization": csv_meta.get("organization"),
+                "budget": csv_meta.get("budget"),
+                "announcement_date": csv_meta.get("announcement_date"),
+                "bid_start": csv_meta.get("bid_start"),
+                "bid_deadline": csv_meta.get("bid_deadline"),
+                "page_number": chunk.metadata.get("page"),
+                "section_title": csv_meta.get("section_title"),
                 "content": chunk.page_content,
-                "file_name": file_name,
-                "file_type": file_type,
+                "file_name": csv_meta.get("file_name", file_name),
+                "file_type": csv_meta.get("file_type", file_ext),
+                "context_summary": chunk.metadata.get("context_summary"),
             },
         }
-
         rag_data.append(item)
 
     return rag_data
 
 
-def _resolve_chunk_source_filename(metadata):
-    for key in ("file_name", "filename", "source", "file_path", "path"):
-        file_name = normalize_source_filename(metadata.get(key, ""))
-        if os.path.splitext(file_name)[1].lower() in {".hwp", ".pdf"}:
-            return file_name
-    return ""
-
-
-def check_document_matching(documents, metadata_map):
+def check_document_matching(documents: List[Document], metadata_map: Dict[str, Any]) -> pd.DataFrame:
+    """
+    문서와 메타데이터의 매칭 성공 여부를 점검하고 통계 반환
+    """
     rows = []
-
     for i, doc in enumerate(documents):
-        file_name = _resolve_chunk_source_filename(doc.metadata)
+        file_name = Path(doc.metadata.get("source", "")).name
         file_key = normalize_filename(file_name)
 
         rows.append({
             "doc_index": i,
             "file_name": file_name,
             "file_key": file_key,
-            "matched": metadata_map.get(file_key) is not None,
-            "page": doc.metadata.get("page", None),
+            "matched": file_key in metadata_map,
+            "page": doc.metadata.get("page"),
         })
 
     doc_match_df = pd.DataFrame(rows)
+    success_count = doc_match_df["matched"].sum()
+    fail_count = len(doc_match_df) - success_count
 
-    print("Document 매칭 성공 수:", doc_match_df["matched"].sum())
-    print("Document 매칭 실패 수:", len(doc_match_df) - doc_match_df["matched"].sum())
-
-    failed_df = doc_match_df[doc_match_df["matched"] == False]
-    if len(failed_df) > 0:
-        print("\n매칭 실패 문서:")
-        print(failed_df)
+    logger.info(f"문서 청크 매칭 결과: 성공 {success_count}건, 실패 {fail_count}건")
+    
+    if fail_count > 0:
+        failed_df = doc_match_df[~doc_match_df["matched"]]
+        logger.warning(f"매칭 실패 문서 일부:\n{failed_df.head()}")
 
     return doc_match_df
 
 
-def check_null_values(rag_data):
+def check_null_values(rag_data: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    최종 RAG 데이터 내 필수 메타데이터 컬럼의 Null 비율 점검
+    """
     check_fields = [
-        "organization",
-        "budget",
-        "announcement_date",
-        "bid_start",
-        "bid_deadline",
-        "section_title",
-        "page_number",
+        "organization", "budget", "announcement_date",
+        "bid_start", "bid_deadline", "section_title", "page_number",
     ]
-
     summary_rows = []
+    total_len = len(rag_data)
 
     for field in check_fields:
         null_count = sum(
             1 for item in rag_data
-            if item["metadata"].get(field) is None
-            or pd.isna(item["metadata"].get(field))
+            if pd.isna(item["metadata"].get(field)) or item["metadata"].get(field) is None
         )
-
         summary_rows.append({
             "field": field,
             "null_count": null_count,
-            "total": len(rag_data),
-            "null_ratio": null_count / len(rag_data) if rag_data else None,
+            "total": total_len,
+            "null_ratio": (null_count / total_len) if total_len > 0 else 0,
         })
 
     null_summary_df = pd.DataFrame(summary_rows)
-
-    print("\nNull 값 체크:")
-    print(null_summary_df)
+    logger.info(f"Null 값 체크 완료:\n{null_summary_df}")
 
     return null_summary_df
