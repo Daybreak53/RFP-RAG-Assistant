@@ -169,7 +169,7 @@ def run_multi_query(
         score_threshold       = cfg.retrieval.score_threshold,
 
         # multi-query 내부에서 사용할 검색 방식
-        search_mode           = cfg.retrieval.multi_query.base_search_mode,
+        search_mode           = cfg.retrieval.search_mode,
 
         reference             = reference,
         metadata_filter       = explicit_filter,
