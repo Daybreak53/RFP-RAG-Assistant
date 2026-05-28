@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional
 
 from omegaconf import DictConfig, OmegaConf
 from langfuse import get_client
@@ -14,7 +14,7 @@ from langfuse import get_client
 from src.parsing.meta_db import normalize_filename
 from src.retrieval.retriever import retrieve_with_candidates
 from src.retrieval.filter_extractor import MetadataFilter, resolve_filter
-from src.retrieval.query_router import route, QueryType
+from src.retrieval.query_router import route
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,6 @@ class EvalRecord:
     평가 데이터셋의 한 레코드를 내부 표준 형태로 정규화한 것.
     relevance_type 은 현재 "file" 고정, 추후 "chunk" 확장 여지.
     """
-    query_type:      str                                       # 소문자 정규화된 QueryType 값
     user_input:      str
     reference:       str
     relevant_ids:    List[str]                                 # 정규화된 파일 키 (normalize_filename 적용)
@@ -47,7 +46,7 @@ class EvalRecord:
 def load_eval_dataset(dataset_path: Path) -> List[EvalRecord]:
     """
     sample.json 형식 로더.
-    각 record: {"query_type", "file_name", "user_input", "reference", "comment"}
+    각 record: {"file_name", "user_input", "reference", "comment"}
     """
     if not dataset_path.exists():
         raise FileNotFoundError(f"평가 데이터셋이 없습니다: {dataset_path}")
@@ -62,17 +61,7 @@ def load_eval_dataset(dataset_path: Path) -> List[EvalRecord]:
             logger.warning(f"[{idx}] file_name 누락 — 레코드 건너뜀")
             continue
 
-        qtype_raw = str(item.get("query_type", "")).strip().lower()
-        # QueryType enum 검증 (없으면 unknown)
-        try:
-            QueryType(qtype_raw)
-            qtype = qtype_raw
-        except ValueError:
-            logger.warning(f"[{idx}] 알 수 없는 query_type='{item.get('query_type')}' → 'unknown' 으로 처리")
-            qtype = "unknown"
-
         records.append(EvalRecord(
-            query_type     = qtype,
             user_input     = str(item.get("user_input", "")).strip(),
             reference      = str(item.get("reference", "")).strip(),
             relevant_ids   = [normalize_filename(file_name)],
@@ -88,12 +77,6 @@ def load_eval_dataset(dataset_path: Path) -> List[EvalRecord]:
 # ──────────────────────────────────────────────────────────────
 # 지표 함수 (binary relevance)
 # ──────────────────────────────────────────────────────────────
-
-def hit_rate_at_k(predicted: List[str], relevant: List[str], k: int) -> float:
-    if k <= 0 or not predicted or not relevant:
-        return 0.0
-    return 1.0 if any(p in relevant for p in predicted[:k]) else 0.0
-
 
 def precision_at_k(predicted: List[str], relevant: List[str], k: int) -> float:
     if k <= 0 or not predicted:
@@ -183,7 +166,7 @@ def evaluate_record(
     candidates:     List[Dict[str, Any]],
     top_k:          int,
     candidate_k:    int,
-    routed_type:    str,
+    route_type:     str,
     rerank_enabled: bool,
 ) -> Dict[str, Any]:
     """
@@ -195,33 +178,29 @@ def evaluate_record(
     rerank_state  = _rerank_status(final_docs, rerank_enabled)
 
     return {
-        "query_type_gt":        record.query_type,
-        "query_type_predicted": routed_type,
-        "query_type_correct":   int(routed_type == record.query_type),
+        "route_type":           route_type,
         "user_input":           record.user_input,
         "relevant_ids":         relevant,
         "final_ids":            final_ids[:top_k],
         "candidate_ids":        candidate_ids[:candidate_k],
         "rerank_status":        rerank_state,
         "metrics": {
-            f"hit_rate@{top_k}":         hit_rate_at_k(final_ids, relevant, top_k),
             f"precision@{top_k}":        precision_at_k(final_ids, relevant, top_k),
             f"recall@{top_k}":           recall_at_k(final_ids, relevant, top_k),
             f"mrr@{top_k}":              mrr_at_k(final_ids, relevant, top_k),
             f"ndcg@{top_k}":             ndcg_at_k(final_ids, relevant, top_k),
             f"recall@{candidate_k}":     recall_at_k(candidate_ids, relevant, candidate_k),
-            f"hit_rate@{candidate_k}":   hit_rate_at_k(candidate_ids, relevant, candidate_k),
         },
     }
 
 
-_RERANK_STATUS_VALUES = ("applied", "fallback", "disabled", "empty_result")
+_RERANK_STATUS_VALUES = ("applied", "fallback", "empty_result")
 
 
 def aggregate_metrics(per_record: List[Dict[str, Any]]) -> Dict[str, float]:
     """
-    모든 record 의 metric 평균 + router 정확도 + rerank status 비율.
-    rerank_*_ratio 4개의 합은 1.0 (검증용).
+    모든 record 의 metric 평균 + rerank status 비율.
+    disabled 상태는 per-record 진단값으로만 남기고 aggregate 에서는 runtime.rerank_enabled 로 확인한다.
     """
     if not per_record:
         return {}
@@ -233,8 +212,6 @@ def aggregate_metrics(per_record: List[Dict[str, Any]]) -> Dict[str, float]:
     for key in metric_keys:
         vals = [r["metrics"][key] for r in per_record]
         agg[key] = sum(vals) / total
-
-    agg["router_accuracy"] = sum(r["query_type_correct"] for r in per_record) / total
 
     statuses = [r.get("rerank_status", "disabled") for r in per_record]
     for status_value in _RERANK_STATUS_VALUES:
@@ -397,19 +374,19 @@ def run_retrieval_eval(cfg: DictConfig) -> Dict[str, Any]:
             eff_top_k            = route_cfg.top_k
             eff_threshold        = route_cfg.score_threshold
             eff_use_multi_query  = route_cfg.use_multi_query
-            routed_type          = route_cfg.query_type.value
+            route_type           = route_cfg.query_type.value
         else:
             eff_search_mode      = cfg.retrieval.search_mode
             eff_top_k            = cfg.retrieval.top_k
             eff_threshold        = cfg.retrieval.score_threshold
             eff_use_multi_query  = cfg.retrieval.multi_query.enabled
-            routed_type          = "unknown"
+            route_type           = "unknown"
 
         qdrant_filter = resolve_filter(
             query           = record.user_input,
             explicit_filter = explicit_filter,
             auto_extract    = auto_extract,
-            query_type      = routed_type,
+            query_type      = route_type,
         )
 
         # 평가 metric 의 top_k 는 cfg.evaluation.retrieval_metrics.top_k 가 우선.
@@ -439,7 +416,7 @@ def run_retrieval_eval(cfg: DictConfig) -> Dict[str, Any]:
             candidates     = candidates,
             top_k          = top_k,
             candidate_k    = candidate_k,
-            routed_type    = routed_type,
+            route_type     = route_type,
             rerank_enabled = rerank_enabled,
         ))
 

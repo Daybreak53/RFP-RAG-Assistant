@@ -97,7 +97,7 @@ evaluation:
 
   # 8-1. Retrieval 일괄 평가 (run_retrieval_eval=true 일 때 사용)
   retrieval_metrics:
-    dataset_path: "data/sample.json"   # 평가 데이터셋 (query_type/file_name/user_input/reference 형식)
+    dataset_path: "data/sample.json"   # 평가 데이터셋 (file_name/user_input/reference 형식)
     output_dir: "eval_results"          # 결과 JSON 저장 위치
     top_k: 3                            # MRR/NDCG/HitRate 등 최종 컷오프
     candidate_k: 20                     # rerank 전 후보 컷오프 (Recall@candidate_k)
