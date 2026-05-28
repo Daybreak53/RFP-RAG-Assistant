@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -10,6 +10,7 @@ from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
 from src.embeddings.sparse_embed import embed_sparse_text
 from src.generation.gen import generate_pure_text
+from src.retrieval.reranker import rerank
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -90,6 +91,90 @@ def _query_dense_points_with_fallback(
         )
 
 
+def _run_base_search(
+    collection_name: str,
+    embed_provider: str,
+    query: str,
+    search_top_k: int,
+    score_threshold: float,
+    search_mode: str,
+    query_filter: Optional[models.Filter],
+    use_multi_query: bool,
+    multi_query_count: int,
+    multi_query_rrf_k: int,
+) -> List[Dict[str, Any]]:
+    """
+    search_mode 분기 및 multi-query 처리. rerank 전 결과만 반환.
+    retrieve() 와 retrieve_with_candidates() 가 공유하는 내부 helper.
+    """
+    if use_multi_query:
+        return multi_query_search(
+            collection_name=collection_name,
+            embed_provider=embed_provider,
+            query=query,
+            top_k=search_top_k,
+            score_threshold=score_threshold,
+            query_filter=query_filter,
+            base_search_mode=search_mode,
+            query_count=multi_query_count,
+            rrf_k=multi_query_rrf_k,
+        )
+
+    if search_mode == "vector":
+        return vector_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter, )
+
+    if search_mode == "keyword":
+      results = keyword_search(collection_name, query, search_top_k, query_filter, )
+      if not results:
+          logger.info("keyword 검색 결과 없음 -> vector 검색으로 폴백")
+          results = vector_search(collection_name,
+              embed_provider, query, search_top_k, score_threshold, query_filter, )
+      return results
+
+    if search_mode == "hybrid":
+        return hybrid_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter, )
+
+    if search_mode == "mmr":
+        return mmr_search(collection_name, embed_provider, query, search_top_k, query_filter, lambda_param=0.95, )
+
+    if search_mode == "hyde":
+        return hyde_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter, )
+
+    raise ValueError(f"지원하지 않는 search_mode: '{search_mode}'")
+
+
+def _apply_rerank(
+    query: str,
+    docs: List[Dict[str, Any]],
+    top_k: int,
+    rerank_config: dict,
+) -> List[Dict[str, Any]]:
+    """
+    rerank 적용 및 실패/빈 결과 시 원본 fallback. retrieve / retrieve_with_candidates 공용.
+    """
+    try:
+        reranked = rerank(
+            query=query,
+            docs=docs,
+            top_k=top_k,
+            model_name=rerank_config.get("model"),
+            max_length=rerank_config.get("max_length", 512),
+            batch_size=rerank_config.get("batch_size", 16),
+            max_content_chars=rerank_config.get("max_content_chars", 1800),
+            score_threshold=rerank_config.get("score_threshold"),
+            diversity_per_group=rerank_config.get("diversity_per_group", 1),
+        )
+    except Exception as exc:
+        print(f"[경고] rerank 실패로 원본 검색 결과를 사용합니다: {exc} (config: {rerank_config})")
+        return docs[:top_k]
+
+    if not reranked:
+        print(f"[경고] rerank 결과가 비어 원본 검색 결과를 사용합니다. (config: {rerank_config})")
+        return docs[:top_k]
+
+    return reranked
+
+
 def retrieve(
     collection_name: str,
     embed_provider: str,
@@ -101,43 +186,79 @@ def retrieve(
     use_contextual: bool = False,
     use_multi_query: bool = False,
     multi_query_count: int = 5,
+    multi_query_rrf_k: int = 60,
+    candidate_k: Optional[int] = None,
+    rerank_config: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
     """
     질의 의도 및 설정에 따라 적절한 검색 모드로 라우팅
     """
     logger.debug(f"검색 시작 | 모드: {search_mode} | 쿼리: {query}")
 
-    if use_multi_query:
-        return multi_query_search(
-            collection_name=collection_name,
-            embed_provider=embed_provider,
-            query=query,
-            top_k=top_k,
-            score_threshold=score_threshold,
-            query_filter=query_filter,
-            base_search_mode=search_mode,
-            query_count=multi_query_count,
-        )
+    rerank_enabled = bool(rerank_config and rerank_config.get("enabled"))
+    search_top_k = max(top_k, candidate_k or top_k) if rerank_enabled else top_k
 
-    if search_mode == "vector":
-        return vector_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
-    elif search_mode == "keyword":
-        results = keyword_search(collection_name, query, top_k, query_filter)
-        # keyword 결과가 없으면 vector로 재검색
-        if not results:
-            logger.info("keyword 검색 결과 없음 → vector 검색으로 폴백")
-            results = vector_search(
-                collection_name, embed_provider, query, top_k, score_threshold, query_filter
-            )
-        return results
-    elif search_mode == "hybrid":
-        return hybrid_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
-    elif search_mode == "mmr":
-        return mmr_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
-    elif search_mode == "hyde":
-        return hyde_search(collection_name, embed_provider, query, top_k, score_threshold, query_filter)
-    else:
-        raise ValueError(f"지원하지 않는 search_mode: '{search_mode}'")
+    docs = _run_base_search(
+        collection_name=collection_name,
+        embed_provider=embed_provider,
+        query=query,
+        search_top_k=search_top_k,
+        score_threshold=score_threshold,
+        search_mode=search_mode,
+        query_filter=query_filter,
+        use_multi_query=use_multi_query,
+        multi_query_count=multi_query_count,
+        multi_query_rrf_k=multi_query_rrf_k,
+    )
+
+    if not rerank_enabled:
+        return docs[:top_k]
+
+    return _apply_rerank(query, docs, top_k, rerank_config)
+
+
+def retrieve_with_candidates(
+    collection_name: str,
+    embed_provider: str,
+    query: str,
+    top_k: int = 3,
+    candidate_k: int = 20,
+    score_threshold: float = 0.7,
+    search_mode: str = "hybrid",
+    query_filter: Optional[models.Filter] = None,
+    use_multi_query: bool = False,
+    multi_query_count: int = 5,
+    multi_query_rrf_k: int = 60,
+    rerank_config: Optional[dict] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    평가용 검색: (final_docs, candidates) 튜플 반환.
+    - candidates: rerank 적용 전 원본 검색 결과 (Recall@candidate_k 측정용)
+    - final_docs: rerank 적용 후 최종 top_k (rerank 비활성 시 candidates[:top_k] 와 동일)
+
+    rerank on/off 와 무관하게 candidates는 항상 max(top_k, candidate_k) 크기로 fetch.
+    """
+    fetch_k = max(top_k, candidate_k)
+
+    candidates = _run_base_search(
+        collection_name=collection_name,
+        embed_provider=embed_provider,
+        query=query,
+        search_top_k=fetch_k,
+        score_threshold=score_threshold,
+        search_mode=search_mode,
+        query_filter=query_filter,
+        use_multi_query=use_multi_query,
+        multi_query_count=multi_query_count,
+        multi_query_rrf_k=multi_query_rrf_k,
+    )
+
+    rerank_enabled = bool(rerank_config and rerank_config.get("enabled"))
+    if not rerank_enabled:
+        return candidates[:top_k], candidates
+
+    final_docs = _apply_rerank(query, candidates, top_k, rerank_config)
+    return final_docs, candidates
 
 
 def vector_search(
@@ -233,7 +354,6 @@ def mmr_search(
     embed_provider: str,
     query: str,
     top_k: int,
-    score_threshold: Optional[float] = None,
     query_filter: Optional[models.Filter] = None,
     lambda_param: float = 0.5,
 ) -> List[Dict[str, Any]]:
@@ -248,7 +368,7 @@ def mmr_search(
             query=dense_vector,
             using="dense",
             limit=top_k * 4,  # MMR 계산을 위해 더 많은 후보군 검색
-            score_threshold=score_threshold,
+            score_threshold=None,
             query_filter=query_filter,
             with_vectors=True,
             with_payload=True,
@@ -260,7 +380,7 @@ def mmr_search(
             collection_name=collection_name,
             query=dense_vector,
             limit=top_k * 4,
-            score_threshold=score_threshold,
+            score_threshold=None,
             query_filter=query_filter,
             with_vectors=True,
             with_payload=True,
@@ -386,9 +506,10 @@ def multi_query_search(
     query_filter: Optional[models.Filter] = None,
     base_search_mode: str = "hybrid",
     query_count: int = 5,
+    rrf_k: int = 60,
 ) -> List[Dict[str, Any]]:
     """
-    질의를 LLM을 통해 여러 개로 파생시켜 검색 후 병합(RRF/중복제거)하는 Multi-Query Retrieval
+    질의를 LLM을 통해 여러 개로 파생시켜 검색 후 RRF Fusion 으로 병합하는 Multi-Query Retrieval
     """
     llm_provider = "openai" if embed_provider == "openai" else "local"
 
@@ -421,9 +542,8 @@ def multi_query_search(
 
     logger.info(f"Multi-query 생성 쿼리 목록: {queries}")
 
-    all_docs = []
-    
-    # 생성된 각각의 쿼리로 base_search 수행
+    rrf_scores = {}
+
     for q in queries:
         docs = retrieve(
             collection_name=collection_name,
@@ -435,15 +555,33 @@ def multi_query_search(
             query_filter=query_filter,
             use_multi_query=False  # 무한 루프 방지
         )
-        all_docs.extend(docs)
 
-    # 중복 제거 (가장 높은 점수를 기준으로 병합)
-    unique_docs = {}
-    for doc in all_docs:
-        key = (doc.get("doc_id"), doc.get("chunk_id"), doc.get("point_id"))
-        if key not in unique_docs or doc.get("score", 0) > unique_docs[key].get("score", 0):
-            unique_docs[key] = doc
+        for rank, doc in enumerate(docs, start=1):
+            key = (
+                doc.get("doc_id"),
+                doc.get("chunk_id"),
+                doc.get("point_id"),
+            )
 
-    # 점수순으로 내림차순 정렬하여 top_k 개수만큼 반환
-    final_docs = sorted(unique_docs.values(), key=lambda x: x.get("score", 0), reverse=True)
+            if key not in rrf_scores:
+                rrf_scores[key] = {
+                    "score": 0.0,
+                    "doc": doc,
+                    "best_rank": rank,
+                    "match_count": 0,
+                }
+
+            rrf_scores[key]["score"] += 1.0 / (rrf_k + rank)
+            rrf_scores[key]["best_rank"] = min(rrf_scores[key]["best_rank"], rank)
+            rrf_scores[key]["match_count"] += 1
+
+    final_docs = []
+    for entry in sorted(rrf_scores.values(), key=lambda x: x["score"], reverse=True):
+        updated_doc = dict(entry["doc"])
+        updated_doc["rrf_score"] = entry["score"]
+        updated_doc["score"] = entry["score"]
+        updated_doc["best_rank"] = entry["best_rank"]
+        updated_doc["matched_query_count"] = entry["match_count"]
+        final_docs.append(updated_doc)
+
     return final_docs[:top_k]

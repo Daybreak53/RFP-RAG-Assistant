@@ -112,6 +112,8 @@ def run_single_query(
                 f"[평가 오류] 일치하는 질의가 없습니다.\n현재 질의: {query_text}"
             )
 
+    rerank_config = OmegaConf.to_container(cfg.retrieval.rerank, resolve=True)
+
     return rag_pipeline(
         collection_name       = collection_name,
         embed_provider        = embed_provider,
@@ -121,6 +123,8 @@ def run_single_query(
         top_k                 = cfg.retrieval.top_k,
         score_threshold       = cfg.retrieval.score_threshold,
         search_mode           = cfg.retrieval.search_mode,
+        candidate_k           = cfg.retrieval.get("candidate_k"),
+        rerank_config         = rerank_config,
         reference             = reference,
         metadata_filter       = explicit_filter,
         auto_extract_filter   = auto_extract,
@@ -168,6 +172,8 @@ def run_multi_query(
                 f"[평가 오류] 일치하는 질의가 없습니다.\n현재 질의: {query_text}"
             )
 
+    rerank_config = OmegaConf.to_container(cfg.retrieval.rerank, resolve=True)
+
     return rag_pipeline(
         collection_name       = collection_name,
         embed_provider        = embed_provider,
@@ -177,6 +183,8 @@ def run_multi_query(
         top_k                 = cfg.retrieval.top_k,
         score_threshold       = cfg.retrieval.score_threshold,
         search_mode           = cfg.retrieval.search_mode,
+        candidate_k           = cfg.retrieval.get("candidate_k"),
+        rerank_config         = rerank_config,
         reference             = reference,
         metadata_filter       = explicit_filter,
         auto_extract_filter   = auto_extract,
@@ -191,6 +199,7 @@ def run_multi_query(
         force_query_type      = force_type,
         use_multi_query       = True,
         multi_query_count     = cfg.retrieval.multi_query.query_count,
+        multi_query_rrf_k     = cfg.retrieval.get("multi_query_rrf_k", 60),
         use_query_rewrite     = use_query_rewrite,
     )
 

@@ -8,6 +8,16 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
 
 from src.parsing.hwp_loader import HWPLoader
+from src.parsing.meta_db import normalize_source_filename
+
+
+def _stamp_source_metadata(documents, file_name, file_type):
+    source_file_name = normalize_source_filename(file_name)
+    for doc in documents:
+        doc.metadata["source"] = source_file_name
+        doc.metadata["file_name"] = source_file_name
+        doc.metadata["file_type"] = file_type
+    return documents
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -49,12 +59,14 @@ def load_documents(data_dir: Union[str, Path]) -> List[Document]:
                 # 로더 초기화 및 문서 로드
                 loader = loader_class(str(file_path))
                 loaded_docs = loader.load()
-                documents.extend(loaded_docs)
-                
+                documents.extend(
+                    _stamp_source_metadata(loaded_docs, file_path.name, ext.lstrip("."))
+                )
+
                 logger.debug(f"성공적으로 로드됨: {file_path.name} ({len(loaded_docs)} 페이지/청크)")
             except Exception as e:
                 logger.error(f"{ext.upper()[1:]} 문서 로드 실패 ({file_path.name}): {e}", exc_info=True)
 
     logger.info(f"문서 로드 완료 (전체 로드된 Document 수: {len(documents)})")
-    
+
     return documents

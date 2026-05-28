@@ -7,6 +7,7 @@ from qdrant_client.models import PointStruct
 from src.vector_db.vectordb import client
 from src.embeddings.embedding import embed_text
 from src.embeddings.sparse_embed import embed_sparse_text
+from src.parsing.meta_db import resolve_source_filename
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -42,16 +43,24 @@ def ingest(
 
     logger.info(f"총 {len(rag_data)}개의 데이터 벡터 DB 적재 시작 (컬렉션: {collection_name})")
 
+    def _prepare_payload(item: Dict[str, Any]) -> Dict[str, Any]:
+        """배치 적재 전 메타데이터 file_name 을 실제 data 디렉토리 기준 이름으로 정규화"""
+        payload = dict(item.get("metadata", {}))
+        if payload.get("file_name"):
+            payload["file_name"] = resolve_source_filename(payload["file_name"])
+        return payload
+
     def _embed_and_build_points(batch_items: List[Dict[str, Any]], provider: str) -> Iterator[PointStruct]:
-        texts_to_embed = [_build_embed_text(item.get("metadata", {})) for item in batch_items]
-        
+        payloads       = [_prepare_payload(item) for item in batch_items]
+        texts_to_embed = [_build_embed_text(payload) for payload in payloads]
+
         try:
             dense_vectors = embed_text(texts_to_embed, provider=provider)
-            
-            for item, text, dense_vec in zip(batch_items, texts_to_embed, dense_vectors):
+
+            for item, payload, text, dense_vec in zip(batch_items, payloads, texts_to_embed, dense_vectors):
                 try:
                     sparse_vec = embed_sparse_text(text)
-                    
+
                     raw_id = item.get("id", str(uuid.uuid4()))
                     point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, raw_id))
 
@@ -61,10 +70,10 @@ def ingest(
                             "dense": dense_vec,
                             "sparse": sparse_vec,
                         },
-                        payload=item.get("metadata", {})
+                        payload=payload,
                     )
                 except Exception as e:
-                    chunk_id = item.get('id', 'Unknown')
+                    chunk_id = item.get("id", "Unknown")
                     logger.error(f"데이터 포인트 생성 중 오류 발생 (ID: {chunk_id}): {e}")
                     continue
         except Exception as e:
@@ -83,10 +92,10 @@ def ingest(
             if len(items_batch) == BATCH_SIZE:
                 yield from _embed_and_build_points(items_batch, embed_provider)
                 items_batch = []
-                
+
         if items_batch:
             yield from _embed_and_build_points(items_batch, embed_provider)
-    
+
     try:
         # Qdrant 내장 배치 업로드
         client.upload_points(
@@ -96,7 +105,7 @@ def ingest(
             parallel=2       # 병렬 처리 워커 수
         )
         logger.info(f"벡터 DB 적재(Ingestion) 완료 (컬렉션: {collection_name}, 모델: {embed_provider})")
-        
+
     except Exception as e:
         logger.error(f"벡터 DB 데이터 적재 중 오류 발생: {e}", exc_info=True)
         raise
