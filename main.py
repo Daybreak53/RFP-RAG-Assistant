@@ -1,5 +1,7 @@
+import json
 import logging
 import sys
+from pathlib import Path
 
 import hydra
 from dotenv import load_dotenv
@@ -79,9 +81,34 @@ def main(cfg: DictConfig) -> None:
                 logger.info("벡터 DB 적재 완료")
 
         # [3] 질의 실행
+        run_batch_eval = cfg.pipeline.get("run_batch_eval", False) # 배치 평가 플래그 읽기
+
         if run_chat:
             logger.info("--- [3] 대화 모드 시작 ---")
             run_chat_mode(cfg)
+
+        elif run_batch_eval:
+            logger.info("--- [3] 배치 평가(Batch Eval) 자동화 시작 ---")
+            dataset_path = Path("data/eval_dataset.json")
+            
+            if not dataset_path.exists():
+                logger.error(f"평가 데이터셋이 없습니다: {dataset_path}")
+                return
+                
+            with open(dataset_path, "r", encoding="utf-8") as f:
+                eval_dataset = json.load(f)
+                
+            for idx, data in enumerate(eval_dataset, 1):
+                query_text = data.get("user_input")
+                logger.info(f"\n[{idx}/{len(eval_dataset)}] 질의 처리 중: {query_text}")
+
+                if cfg.retrieval.multi_query.enabled:
+                    run_multi_query(cfg=cfg, query_text=query_text)
+                else:
+                    run_single_query(cfg=cfg, query_text=query_text)
+                    
+            logger.info("--- 배치 평가 완료 ---")
+
         elif run_query:
             query_text = cfg.query
             logger.info(f"질의 내용: {query_text}")

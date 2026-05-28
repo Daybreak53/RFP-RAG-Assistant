@@ -4,12 +4,13 @@
 
 # 1. 실행 파이프라인 설정
 pipeline:
-  run_all: false       # true일 경우 전체 파이프라인 순차 실행
-  run_parse: false     # 파싱 실행 여부
-  run_ingest: false    # DB 적재 실행 여부
-  run_query: false     # 단일 질의(RAG) 실행 여부
-  run_eval: false      # 평가 실행 여부
-  run_chat: false      # 대화형 모드 실행 여부
+  run_all: false          # true일 경우 전체 파이프라인 순차 실행
+  run_parse: false        # 파싱 실행 여부
+  run_ingest: false       # DB 적재 실행 여부
+  run_query: false        # 단일 질의(RAG) 실행 여부
+  run_eval: false         # 평가 실행 여부
+  run_chat: false         # 대화형 모드 실행 여부
+  run_batch_eval: false   # 배치 평가 실행 여부
 
 # 2. 모델 및 프로바이더 설정
 providers:
