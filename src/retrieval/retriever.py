@@ -121,29 +121,24 @@ def _run_base_search(
         )
 
     if search_mode == "vector":
-        return vector_search(
-            collection_name, embed_provider, query, search_top_k, score_threshold, query_filter,
-        )
+        return vector_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter, )
 
     if search_mode == "keyword":
-        return keyword_search(
-            collection_name, query, search_top_k, query_filter,
-        )
+      results = keyword_search(collection_name, query, search_top_k, query_filter, )
+      if not results:
+          logger.info("keyword 검색 결과 없음 -> vector 검색으로 폴백")
+          results = vector_search(collection_name,
+              embed_provider, query, search_top_k, score_threshold, query_filter, )
+      return results
 
     if search_mode == "hybrid":
-        return hybrid_search(
-            collection_name, embed_provider, query, search_top_k, score_threshold, query_filter,
-        )
+        return hybrid_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter, )
 
     if search_mode == "mmr":
-        return mmr_search(
-            collection_name, embed_provider, query, search_top_k, query_filter, lambda_param=0.95,
-        )
+        return mmr_search(collection_name, embed_provider, query, search_top_k, query_filter, lambda_param=0.95, )
 
     if search_mode == "hyde":
-        return hyde_search(
-            collection_name, embed_provider, query, search_top_k, score_threshold, query_filter,
-        )
+        return hyde_search(collection_name, embed_provider, query, search_top_k, score_threshold, query_filter, )
 
     raise ValueError(f"지원하지 않는 search_mode: '{search_mode}'")
 
