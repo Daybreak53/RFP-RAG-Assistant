@@ -56,20 +56,19 @@ class RouteConfig:
 
 # 각 유형을 나타내는 한국어 키워드 정규식
 _RULES: list[tuple[QueryType, re.Pattern]] = [
-    # FILTER_BASED : 기관명·예산·날짜 조건이 포함된 질의
-    (QueryType.FILTER_BASED, re.compile(
-        r"발주\s*기관|발주처|수요\s*기관|기관명|"
-        r"\d+\s*억|예산|사업비|금액|"
-        r"\d{4}[-./년]\s*\d{1,2}[-./월]\s*\d{1,2}|"
-        r"공고일|마감일|입찰\s*기간|일정"
-    )),
-
     # COMPARATIVE : 두 개 이상의 항목 비교
     (QueryType.COMPARATIVE, re.compile(
         r"비교|차이|대비|각각|어떻게\s*다|반면|"
         r"vs\.|versus|공통점|차이점|더\s*높|더\s*낮|"
         r"두\s*(?:사업|기관|문서|공고)|여러\s*(?:사업|기관)"
+        r"|사업과\s*.+사업|기관과\s*.+기관"
     )),
+
+    # SUMMARIZATION : 요약·설명·개요
+    (QueryType.SUMMARIZATION, re.compile(
+    r"요약|정리|요점|개요|전반적|전체적|주요\s*내용"
+    r"|핵심|설명해|소개|어떤\s*사업|무슨\s*사업|어떤\s*내용"
+)),
 
     # PROCEDURAL : 절차·방법·단계
     (QueryType.PROCEDURAL, re.compile(
@@ -77,13 +76,6 @@ _RULES: list[tuple[QueryType, re.Pattern]] = [
         r"어디에|제출|접수|신청|참여|등록|"
         r"제안서\s*작성|준비|요구\s*사항|필수|"
         r"유의\s*사항|주의"
-    )),
-
-    # SUMMARIZATION : 요약·설명·개요
-    (QueryType.SUMMARIZATION, re.compile(
-        r"요약|정리|요점|개요|전반적|전체적|주요\s*내용|"
-        r"핵심|알려줘|설명해|소개|어떤\s*사업|"
-        r"무슨\s*사업|어떤\s*내용"
     )),
 
     # ANALYTICAL : 평가·분석·전략
@@ -99,6 +91,15 @@ _RULES: list[tuple[QueryType, re.Pattern]] = [
         r"최대|최소|상한|하한|제한|기준|조건|몇\s*자|"
         r"언제|날짜|기간|몇\s*점|합격|배점|가점|가중치|"
         r"무엇|유형|종류"
+    )),
+
+    # FILTER_BASED : 기관명·예산·날짜 조건이 포함된 질의
+    (QueryType.FILTER_BASED, re.compile(
+        r"발주\s*기관|발주처|수요\s*기관|기관명|"
+        r"\d+\s*억|예산|사업비|금액|"
+        r"\d{4}[-./년]\s*\d{1,2}[-./월]\s*\d{1,2}|"
+        r"공고일|마감일|입찰\s*기간|일정"
+        r"|에서\s*발주|이\s*발주한|가\s*발주한"
     )),
 ]
 

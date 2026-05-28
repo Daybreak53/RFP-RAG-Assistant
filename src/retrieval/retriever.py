@@ -362,7 +362,9 @@ def mmr_search(
     query_filter: Optional[models.Filter] = None,
     lambda_param: float = 0.5,
 ) -> List[Dict[str, Any]]:
-    """다양성을 고려한 MMR(Maximal Marginal Relevance) 검색"""
+    """
+    다양성을 고려한 MMR(Maximal Marginal Relevance) 검색
+    """
     dense_vector = embed_text(query, provider=embed_provider)
 
     try:

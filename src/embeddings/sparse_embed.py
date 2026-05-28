@@ -9,8 +9,8 @@ from qdrant_client import models
 # 로거 설정
 logger = logging.getLogger(__name__)
 
-TARGET_POS_TAGS = ('N', 'V', 'R')   # 형태소 분석에서 추출할 타겟 품사 태그 (명사, 동사, 어근 등)
-MIN_TOKEN_LENGTH = 2                # 검색어로서 의미를 가지는 최소 글자 수
+TARGET_POS_TAGS = ('N', 'V', 'R', 'SL')   # 형태소 분석에서 추출할 타겟 품사 태그 (명사, 동사, 어근 등)
+MIN_TOKEN_LENGTH = 2                      # 검색어로서 의미를 가지는 최소 글자 수
 
 
 @lru_cache(maxsize=1)
