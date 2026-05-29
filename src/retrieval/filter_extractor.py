@@ -16,28 +16,28 @@ _PATTERN_EXACT = r"(?:국가과학기술지식정보서비스|KOICA 전자조달
 _SAFE_SUFFIX = (
     r"(?:"
     r"위원회|진흥원|연구원|정보원|평가원|보호원|서비스원|개발원|기술원|교육원|연수원|수련원|의료원"
-    r"|연구소|보건소|병원|센터|본부|지사|지부"
+    r"|연구소|보건소|병원|센터|본부|지사|지부|사무국|사업단|기획단|사무처|산학협력단" # 추가됨
     r"|재단법인|사단법인|공사|공단|재단|조합|협의회|연합회|중앙회|진흥회|체육회|회의소|협회|학회|영화제"
     r"|고등학교|중학교|초등학교|대학교?|대학|학교|교육청"
     r"|테크노파크|박물관|미술관|도서관|과학관|전시관"
-    r"|주식회사|유한회사|\(주\)|\(유\)|㈜"
+    r"|주식회사|유한회사|\([주유]\)|㈜|（[주유]）"
     r"|새마을금고|은행|신협|농협|수협|금고"
     r"|주민센터|행정복지센터|도청|시청|군청|구청"
     r")"
 )
-# 뒤에 \)? 를 붙여 "JST 공유대학(원)" 같은 경우 닫는 괄호가 잘리는 현상 방지
-_PATTERN_SAFE = r"[가-힣a-zA-Z0-9\s\(\)㈜]{1,30}" + _SAFE_SUFFIX + r"\)?"
+
+_ORG_PREFIX = r"[가-힣a-zA-Z0-9\(\)㈜（）]{1,20}(?:\s+[가-힣a-zA-Z0-9\(\)㈜（）]{1,20}){0,3}"
+_PATTERN_SAFE = _ORG_PREFIX + _SAFE_SUFFIX + r"[)\）]?"
 
 # 1글자라 위험한 접미사 (도, 시, 군, 구, 부, 처, 청)
 _PATTERN_RISKY = (
-    r"(?:[가-힣]{2,4}(?:도|특별시|광역시)\s+)?"
-    r"[가-힣]{2,8}(?:도|시|군|구|부|처|청)"
-    r"(?=\s|['\"\)\]]|에서|이|가|의|는|은|와|과|$)"
+    r"(?:[가-힣]{2,4}(?:도|특별시|광역시)\s*)?"
+    r"[가-힣]{1,8}(?:도|시|군|구|부|처|청)"
+    r"(?=\s|['\"\)\]\）]|에서|이|가|의|는|은|와|과|를|을|나|로|으로|까지|만|$)"
 )
 
 # 최종 조립 (우선순위: 정확한 예외명칭 -> 안전한 접미사 패턴 -> 위험한 1글자 패턴)
 _ORG_CORE = f"(?:{_PATTERN_EXACT}|{_PATTERN_SAFE}|{_PATTERN_RISKY})"
-
 _PAT_TRIGGER = re.compile(f"({_ORG_CORE})")
 _PAT_LABEL = re.compile(f"({_ORG_CORE})")
 
@@ -135,9 +135,10 @@ def _extract_organization(text: str) -> Optional[str]:
                             orgs.append(last_word)
                             
                     if len(parts) > 2:
-                        two_words = f"{parts[0]} {parts[1]}"
-                        if two_words not in orgs:
-                            orgs.append(two_words)
+                        if _is_valid_sub_org(parts[1]):
+                            two_words = f"{parts[0]} {parts[1]}"
+                            if two_words not in orgs:
+                                orgs.append(two_words)
 
     return orgs if orgs else None
 
@@ -317,10 +318,6 @@ def resolve_filter(
     
     if auto_extract:
         extracted_filter = extract_filters_from_query(query)
-
-        # 비교(comparative) 질의에서 단일 기관 필터링 방지
-        if query_type == "comparative":
-            extracted_filter.organization = None
 
         # 명시적 필터(base)가 자동 추출 필터(extracted)보다 우선순위를 가짐
         merged_filter = base_filter.merge_with(extracted_filter)
