@@ -9,32 +9,37 @@ from qdrant_client import models
 logger = logging.getLogger(__name__)
 
 # 기관명 추출을 위한 정규식
-_SUFFIX = (
+# 예외적 특수 기관명 (시스템/포털 등 - 사업명과 혼동되지 않도록 고정 명칭 사용)
+_PATTERN_EXACT = r"(?:국가과학기술지식정보서비스|KOICA 전자조달|BioIN|나라장터|온비드)"
+
+# 2글자 이상이라 오탐 확률이 낮은 안전한 접미사 (시스템, 서비스 제외)
+_SAFE_SUFFIX = (
     r"(?:"
-    r"특별자치도|특별자치시|특별시|광역시"
-    r"|행정안전부|과학기술정보통신부|기획재정부|국토교통부|보건복지부"
-    r"|교육부|환경부|고용노동부|산업통상자원부|문화체육관광부"
-    r"|진흥원|연구원|연구소|교육청|경찰청|소방청|진흥회"
-    r"|재단법인|재단|공단|공사|협회|센터|위원회|영화제|조합"
-    r"|대학교?|대학|의료원|병원|본부|기술원"
-    r"|시청|군청|구청|도청"
+    r"위원회|진흥원|연구원|정보원|평가원|보호원|서비스원|개발원|기술원|교육원|연수원|수련원|의료원"
+    r"|연구소|보건소|병원|센터|본부|지사|지부"
+    r"|재단법인|사단법인|공사|공단|재단|조합|협의회|연합회|중앙회|진흥회|체육회|회의소|협회|학회|영화제"
+    r"|고등학교|중학교|초등학교|대학교?|대학|학교|교육청"
+    r"|테크노파크|박물관|미술관|도서관|과학관|전시관"
+    r"|주식회사|유한회사|\(주\)|\(유\)|㈜"
+    r"|새마을금고|은행|신협|농협|수협|금고"
+    r"|주민센터|행정복지센터|도청|시청|군청|구청"
     r")"
 )
-_ORG_CORE = r"[가-힣a-zA-Z0-9]{1,20}" + _SUFFIX
+# 뒤에 \)? 를 붙여 "JST 공유대학(원)" 같은 경우 닫는 괄호가 잘리는 현상 방지
+_PATTERN_SAFE = r"[가-힣a-zA-Z0-9\s\(\)㈜]{1,30}" + _SAFE_SUFFIX + r"\)?"
 
-_PAT_TRIGGER = re.compile(
-    r"(?<!\S)"                                          
-    r"(" + _ORG_CORE + r")"
-    r"(?:\s*(?:에서|이|가|의))?\s*"
-    r"(?:[가-힣a-zA-Z0-9()]+\s+){0,5}"
-    r"(?:용역|사업|과업|지침|발주|공고|공모|입찰|제안|구축|개선|고도화|재구축|개발|운영)"
+# 1글자라 위험한 접미사 (도, 시, 군, 구, 부, 처, 청)
+_PATTERN_RISKY = (
+    r"(?:[가-힣]{2,4}(?:도|특별시|광역시)\s+)?"
+    r"[가-힣]{2,8}(?:도|시|군|구|부|처|청)"
+    r"(?=\s|['\"\)\]]|에서|이|가|의|는|은|와|과|$)"
 )
 
-_PAT_LABEL = re.compile(
-    r"(?:발주\s*기관|발주\s*처|발주처|기관명?|수요\s*기관)"
-    r"\s*[:\s은는이가]\s*"
-    r"(" + _ORG_CORE + r")"                             
-)
+# 최종 조립 (우선순위: 정확한 예외명칭 -> 안전한 접미사 패턴 -> 위험한 1글자 패턴)
+_ORG_CORE = f"(?:{_PATTERN_EXACT}|{_PATTERN_SAFE}|{_PATTERN_RISKY})"
+
+_PAT_TRIGGER = re.compile(f"({_ORG_CORE})")
+_PAT_LABEL = re.compile(f"({_ORG_CORE})")
 
 # 예산 단위 변환 맵
 _BUDGET_UNIT: Dict[str, float] = {
@@ -58,7 +63,7 @@ class MetadataFilter:
     """
     검색에 사용할 메타데이터 필터 조건 집합
     """
-    organization: Optional[str] = None
+    organization: Optional[List[str]] = None
     budget_min: Optional[float] = None
     budget_max: Optional[float] = None
     announcement_after: Optional[str] = None
@@ -80,23 +85,61 @@ class MetadataFilter:
         """
         merged = MetadataFilter()
         for field in fields(self):
-            self_val = getattr(self, field.name)
-            other_val = getattr(other, field.name)
-            setattr(merged, field.name, self_val if self_val is not None else other_val)
+            if field.name == "organization":
+                self_orgs = getattr(self, field.name) or []
+                other_orgs = getattr(other, field.name) or []
+                merged_orgs = list(dict.fromkeys(self_orgs + other_orgs))
+                setattr(merged, field.name, merged_orgs if merged_orgs else None)
+            else:
+                self_val = getattr(self, field.name)
+                other_val = getattr(other, field.name)
+                setattr(merged, field.name, self_val if self_val is not None else other_val)
         return merged
+
+
+def _is_valid_sub_org(word: str) -> bool:
+    """
+    쪼개진 어절이 단독으로 유효한 기관명(접미사) 조건을 만족하는지 확인하는 헬퍼 함수
+    """
+    # 1. 안전한 접미사나 예외 기관명으로 끝나는지 확인
+    if re.search(f"(?:{_PATTERN_EXACT}|{_SAFE_SUFFIX}\\)?)$", word):
+        return True
+    # 2. 1글자 위험 접미사(도, 시, 군, 구, 부, 처, 청) 조건을 만족하는지 확인
+    if re.match(r"^[가-힣]{2,8}(?:도|시|군|구|부|처|청)$", word):
+        return True
+    return False
 
 
 def _extract_organization(text: str) -> Optional[str]:
     """
     텍스트에서 발주 기관명 추출
     """
+    orgs = []
     for pat in (_PAT_TRIGGER, _PAT_LABEL):
-        match = pat.search(text)
-        if match:
+        for match in pat.finditer(text):
             candidate = match.group(1).strip()
-            if len(candidate) >= 3:
-                return candidate
-    return None
+            if len(candidate) >= 2:
+                if candidate not in orgs:
+                    orgs.append(candidate)
+                
+                parts = candidate.split()
+                if len(parts) > 1:
+                    first_word = parts[0]
+                    if len(first_word) >= 2 and _is_valid_sub_org(first_word):
+                        if first_word not in orgs:
+                            orgs.append(first_word)
+                    
+                    last_word = parts[-1]
+                    if len(last_word) >= 2 and _is_valid_sub_org(last_word):
+                        if last_word not in orgs:
+                            orgs.append(last_word)
+                            
+                    if len(parts) > 2:
+                        two_words = f"{parts[0]} {parts[1]}"
+                        if two_words not in orgs:
+                            orgs.append(two_words)
+
+    return orgs if orgs else None
 
 
 def _parse_budget_string(text: str) -> float:
@@ -206,10 +249,17 @@ def build_qdrant_filter(flt: MetadataFilter) -> Optional[models.Filter]:
     must_conditions: List[models.Condition] = []
 
     if flt.organization:
-        must_conditions.append(models.FieldCondition(
-            key="organization",
-            match=models.MatchText(text=flt.organization),
-        ))
+        org_conditions = [
+            models.FieldCondition(
+                key="organization",
+                match=models.MatchText(text=org)
+            )
+            for org in flt.organization
+        ]
+
+        must_conditions.append(
+            models.Filter(should=org_conditions)
+        )
 
     if flt.budget_min is not None or flt.budget_max is not None:
         must_conditions.append(models.FieldCondition(
