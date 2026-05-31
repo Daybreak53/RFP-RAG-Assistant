@@ -76,7 +76,7 @@ class RagasEvaluator:
         
         try:
             dataset = Dataset.from_dict(data_samples)
-            run_config = RunConfig(timeout=120.0, max_workers=3)
+            run_config = RunConfig(timeout=300.0, max_workers=3)
             
             result = evaluate(
                 dataset=dataset,
