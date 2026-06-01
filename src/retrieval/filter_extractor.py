@@ -2,6 +2,7 @@ import logging
 import re
 import csv
 import os
+import calendar
 from dataclasses import dataclass, fields
 from typing import Optional, List, Tuple, Dict
 
@@ -210,7 +211,7 @@ def extract_filters_from_query(query: str) -> MetadataFilter:
     flt.budget_max = budget_max
     
     # 공고일
-    announce_date = _extract_date(query, ["공고일", "공개일", "공고"])
+    announce_date = _extract_date(query, ["공고일", "공개일"])
     if announce_date:
         if "이후" in query:
             flt.announcement_after = announce_date
