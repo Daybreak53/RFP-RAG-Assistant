@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Dict, Any
 
 from src.evaluation.evaluator import RagasEvaluator
@@ -25,6 +26,31 @@ def _extract_contexts(retrieved_contexts: Any) -> List[str]:
             formatted_contexts.append(str(ctx))
             
     return formatted_contexts
+
+
+def _extract_final_answer(response_text: str) -> str:
+    """
+    CoT 응답 텍스트에서 '▶ 답변:' 이후의 최종 답변 부분만 추출합니다.
+    '▶ 답변:'이 없을 경우 원본 텍스트 전체를 반환합니다.
+    """
+    if not response_text:
+        return ""
+        
+    # '▶ 답변:' (공백 허용) 문자열 뒤의 모든 내용을 탐색
+    match = re.search(r"▶\s*답변\s*:(.*)", response_text, flags=re.DOTALL)
+    
+    if match:
+        extracted = match.group(1).strip()
+        
+        # RAGAS 평가에 노이즈를 줄 수 있는 꼬리말([출처] 또는 **출처 상세**) 제거
+        source_match = re.search(r"(.*?)(?=\n*\[출처|\n*\*\*출처 상세\*\*)", extracted, flags=re.DOTALL)
+        if source_match:
+            extracted = source_match.group(1).strip()
+            
+        return extracted if extracted else response_text
+        
+    # 패턴을 찾지 못한 경우 (기본 프롬프트 등을 사용했을 때) 전체 반환
+    return response_text.strip()
 
 
 def evaluate(
@@ -76,7 +102,10 @@ def evaluate(
     
     for data in evaluation_data:
         data_samples["user_input"].append(data.get("user_input", ""))
-        data_samples["response"].append(data.get("response", ""))
+        
+        raw_response = data.get("response", "")
+        parsed_response = _extract_final_answer(raw_response)
+        data_samples["response"].append(parsed_response)
         
         raw_contexts = data.get("retrieved_contexts") or data.get("retrieved_context", [])
         data_samples["contexts"].append(_extract_contexts(raw_contexts))
