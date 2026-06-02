@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -354,37 +355,37 @@ def mmr_search(
     embed_provider: str,
     query: str,
     top_k: int,
+    candidate_k: int = 100,  # 비교 분석형을 위해 후보군 그릇을 100개로 확장
     query_filter: Optional[models.Filter] = None,
-    lambda_param: float = 0.5,
+    lambda_param: float = 0.3,  # 다중 문서 대조를 위해 다양성 가중치 강화 (0.5 -> 0.3)
 ) -> List[Dict[str, Any]]:
     """
-    다양성을 고려한 MMR(Maximal Marginal Relevance) 검색
+    Dense(의미) + Sparse(키워드) 하이브리드 랭킹 후, 
+    다양성을 극대화한 MMR 검색을 수행합니다.
     """
+    # 1. 쿼리에 대한 Dense 및 Sparse 벡터 생성
     dense_vector = embed_text(query, provider=embed_provider)
+    sparse_vector = embed_sparse_text(query)  # [추가] Ingest 때 썼던 함수 그대로 활용
 
     try:
+        # 2. Qdrant Prefetch를 활용한 하이브리드(RRF) 검색 수행
         results = client.query_points(
             collection_name=collection_name,
-            query=dense_vector,
-            using="dense",
-            limit=top_k * 4,  # MMR 계산을 위해 더 많은 후보군 검색
+            prefetch=[
+                models.Prefetch(query=dense_vector, using="dense", limit=candidate_k),
+                models.Prefetch(query=sparse_vector, using="sparse", limit=candidate_k),
+            ],
+            # RRF(Reciprocal Rank Fusion)를 통해 두 검색 결과의 순위를 공정하게 융합
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=candidate_k,
             score_threshold=None,
             query_filter=query_filter,
             with_vectors=True,
             with_payload=True,
         )
-    except UnexpectedResponse as e:
-        if not _is_missing_vector_name_error(e, "dense"):
-            raise
-        results = client.query_points(
-            collection_name=collection_name,
-            query=dense_vector,
-            limit=top_k * 4,
-            score_threshold=None,
-            query_filter=query_filter,
-            with_vectors=True,
-            with_payload=True,
-        )
+    except Exception as e:
+        logger.error(f"Qdrant Hybrid Prefetch 쿼리 실패: {e}")
+        return []
 
     if not results or not getattr(results, "points", None):
         return []
@@ -397,31 +398,43 @@ def mmr_search(
                 return p.vector.get("dense") or list(p.vector.values())[0]
             return p.vector
 
+        # MMR 계산은 문서 간 '의미적 유사도 공간(Dense)'에서 수행합니다.
         candidate_embeddings = np.array([_get_vector(p) for p in points])
-        query_sims = np.array([p.score for p in points])
-
-        # Min-Max Scaling
-        if len(query_sims) > 1 and (query_sims.max() - query_sims.min()) > 1e-5:
-            query_sims = (query_sims - query_sims.min()) / (query_sims.max() - query_sims.min())
+        
+        # RRF 점수(p.score)를 코사인처럼 [0, 1] 공간으로 안전하게 스케일링
+        raw_scores = np.array([p.score for p in points])
+        query_sims = (raw_scores - raw_scores.min()) / (raw_scores.max() - raw_scores.min() + 1e-5)
 
         sim_matrix = cosine_similarity(candidate_embeddings)
+        sim_matrix_scaled = (sim_matrix + 1) / 2  # [-1, 1] -> [0, 1]
 
         selected_indices = []
         unselected_indices = list(range(len(points)))
 
+        # 1등 픽
         first_pick = int(np.argmax(query_sims))
         selected_indices.append(first_pick)
         unselected_indices.remove(first_pick)
 
         target_k = min(top_k, len(points))
 
+        # MMR 루프 가동
         while len(selected_indices) < target_k and unselected_indices:
             mmr_scores = []
+            selected_docs = [points[idx].payload.get("file_name") for idx in selected_indices if points[idx].payload]
+
             for unsel_idx in unselected_indices:
                 sim_to_query = query_sims[unsel_idx]
-                sim_to_selected = max(sim_matrix[unsel_idx, sel_idx] for sel_idx in selected_indices)
-                sim_to_selected_scaled = (sim_to_selected + 1) / 2
-                mmr_score = (lambda_param * sim_to_query) - ((1 - lambda_param) * sim_to_selected_scaled)
+                sim_to_selected = max(sim_matrix_scaled[unsel_idx, sel_idx] for sel_idx in selected_indices)
+                
+                mmr_score = (lambda_param * sim_to_query) - ((1 - lambda_param) * sim_to_selected)
+                
+                # [Hard Diversity] 동일 문서 중복 선택 방어벽 (file_name 기준)
+                if points[unsel_idx].payload:
+                    current_doc = points[unsel_idx].payload.get("file_name")
+                    if current_doc in selected_docs:
+                        mmr_score -= 0.25  # 이미 뽑힌 문서 출신이면 과감하게 감점
+
                 mmr_scores.append((mmr_score, unsel_idx))
 
             best_idx = max(mmr_scores, key=lambda x: x[0])[1]
@@ -431,7 +444,7 @@ def mmr_search(
         final_points = [points[i] for i in selected_indices]
 
     except Exception as e:
-        logger.warning(f"MMR 연산 실패로 기본 유사도 순서로 대체합니다: {e}")
+        logger.warning(f"MMR 연산 실패로 하이브리드 기본 순서로 대체합니다: {e}")
         final_points = points[:top_k]
 
     return _format_points(final_points)
@@ -518,11 +531,14 @@ def multi_query_search(
 사용자 질문을 분석해서 벡터DB 검색에 적합한 검색 쿼리 {query_count}개를 생성하세요.
 
 [중요]
-- 질문이 여러 조건을 묻고 있다면 조건별로 분해하세요.
-- 답변을 만들지 말고 검색어만 생성하세요.
-- 원문 질문을 반드시 첫 번째 쿼리로 유지하세요.
-- RFP, 제안요청서 등에 실제로 등장할 법한 표현으로 바꾸세요.
-- 번호, 설명, 따옴표 없이 한 줄에 하나씩 출력하세요.
+1. 비교/대조형 질문 분해 (가장 중요):
+   - 질문이 "A와 B의 차이", "A사업과 B사업 비교"처럼 두 개 이상의 대상/기관/사업을 대조하고 있다면, 반드시 쿼리를 '대상별'로 완전히 분리(Decomposition)하세요.
+   - 두 대상이 하나의 쿼리에 동시에 들어가면 검색 독점이 발생하므로, 각 대상을 '단독'으로 검색하는 쿼리를 각각 최소 2개 이상 확보해야 합니다.
+   - 질문에 명시되지 않은 가상의 대상(예: 'A사업', 'B사업', 'X기관')을 임의로 만들어 쿼리에 포함하지 마세요.
+2. 답변을 만들지 말고 검색어만 생성하세요.
+3. 원문 질문을 반드시 첫 번째 쿼리로 유지하세요.
+4. RFP, 제안요청서 등에 실제로 등장할 법한 표현으로 바꾸세요.
+5. 번호, 설명, 따옴표 없이 한 줄에 하나씩 출력하세요.
 
 사용자 질문:
 {query}
@@ -530,11 +546,26 @@ def multi_query_search(
 
     try:
         response = generate_pure_text(prompt, provider=llm_provider)
-        generated_queries = [
-            line.strip("-•1234567890. ").strip()
-            for line in response.splitlines()
-            if line.strip()
-        ]
+        generated_queries = []
+        for line in response.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            
+            # ^[\s-•]* : 줄 시작 부분의 공백이나 불릿 기호(-, •) 제거
+            # \d+[\s.)]* : 이어서 나오는 순번 숫자(예: 1., 2), 3))와 공백/괄호 제거
+            # | ^\s*[-•]\s* : 또는 단순히 시작하는 불릿 기호 제거
+            cleaned_line = re.sub(r'^\s*[-•]\s*|^\s*\(?\d+[\s.)]+', '', line).strip()
+            # 사업명 생성 과정중 임의로 A, B ,C 사업 등으로 하는 것 방지
+            cleaned_line = re.sub(r'\b[A-Z]사업\b', '사업', cleaned_line)
+            cleaned_line = re.sub(r'\b[A-Z]사\b', '사업', cleaned_line)
+            cleaned_line = re.sub(r'\b[A-Z]기관\b', '기관', cleaned_line)
+            
+            # 따옴표나 불필요한 기호 최종 정제
+            cleaned_line = cleaned_line.strip('"\'')
+            
+            if cleaned_line:
+                generated_queries.append(cleaned_line)
         queries = list(dict.fromkeys([query] + generated_queries))[:query_count]
     except Exception as e:
         logger.warning(f"LLM multi-query 생성 실패로 원본 쿼리만 사용합니다: {e}")
