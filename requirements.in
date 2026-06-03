@@ -19,3 +19,6 @@ langchain-experimental
 scikit-learn
 hydra-core
 omegaconf
+paddlepaddle-gpu
+paddleocr
+paddlex
