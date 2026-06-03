@@ -4,7 +4,6 @@
 > 본 프로젝트는 공공입찰 컨설팅 스타트업 '**입찰메이트**'를 위한 시스템으로, 매일 쏟아지는 수백 건의 나라장터 RFP 문서를 일일이 분석하는 대신 자연어 질의를 통해 핵심 조건·예산·일정 요구사항을 즉시 추출할 수 있도록 돕습니다.
 
 ## 주요 기능 (Key Features)
-
 1. **다중 포맷 문서 파싱 및 메타데이터 자동 매칭**
    * PDF 및 HWP 양식의 제안요청서(RFP) 문서를 정확하게 파싱하고, 대조군인 CSV 메타데이터(공고 정보 등)와 매칭하여 문서별 컨텍스트 관계를 정밀하게 연결합니다.
 
@@ -24,7 +23,7 @@
    * 사용자가 입력한 자연어 질문 속에서 필터링 조건을 자동으로 추출하고, 이를 Qdrant DB의 메타데이터 필터와 실시간 연동하여 검색 대상 문서를 명확하게 타겟팅합니다.
 
 7. **다중 LLM 및 3가지 프롬프트 엔지니어링 전략 지원**
-   * **모델 선택:** 보안 및 비용 효율을 위한 로컬 오픈소스 모델(**EXAONE 3.5:7.8b**)과 다중 문서 비교에 유리한 상용 API(**gpt-5-nano**) 중 선택하여 구동할 수 있습니다.
+   * **모델 선택:** 보안 및 비용 효율을 위한 로컬 오픈소스 모델(**EXAONE 3.5:7.8b**)과 다중 문서 비교에 유리한 상용 API(**gpt-5-nano** 등) 중 선택하여 구동할 수 있습니다.
    * **프롬프트 기법:** 환각, 출력형식을 제어하는 **'기본 4규칙 프롬프트'**, 논리적 추론을 유도하는 **'Zero-shot CoT'**, 예시를 활용하는 **'Few-shot CoT'** 총 3가지 모드를 제공합니다.
 
 8. **RAGAS + Langfuse 기반 자동화 평가 및 모니터링**
@@ -51,41 +50,45 @@ pip install -r requirements.txt
 ```
 
 ### 2. 환경 변수 설정 (.env)
-프로젝트 루트 디렉토리에 `.env` 파일을 생성하고, 연동할 외부 서비스의 API 키를 입력합니다.
-.env.example 을 보고 API키를 입력하시면 됩니다.
+프로젝트 루트 디렉토리에 .env 파일을 생성하고, 연동할 외부 서비스의 API 키를 입력합니다.
+.env.example 파일을 참고하여 각 항목의 API 키를 채워주세요.
 
 ### 3. 데이터 적재
-RFP 문서 데이터를 프로그램 root 폴더 내부에 data 디렉토리 생성 후 적재합니다.
+프로젝트 루트 디렉토리 내에 data/ 폴더를 생성한 후, 아래의 파일들을 적재합니다.
+- 매칭의 기준이 되는 메타데이터 파일 (data_list.csv 등)
+- 실제 분석 대상인 공고 원문 파일 (PDF, HWP 포맷)
 
 ### 4. 실행 방법
+Hydra 설정을 기반으로 전체 파이프라인(파싱, DB 적재, RAG 등)을 일괄 실행합니다.
 ```bash
-python main.py pipeline.run_all
+python main.py pipeline.run_all=True
 ```
+※ 특정 파이프라인만 실행하려면 conf/config.yaml에서 설정을 변경하거나, 명령어 인자로 pipeline.run_chat=True 등을 넘겨 실행할 수 있습니다.
 
 ##  프로젝트 구조
 ```arduino
 RFP-RAG-Assistant/
-├── main.py                  # 실행 진입점
-├── config.yaml              # 설정 파일
+├── main.py                  # 파이프라인 실행 진입점
 ├── .env.example             # 환경 변수 템플릿 파일
-├── data/                    # 문서 저장 폴더
+├── requirements.txt         # 파이썬 의존성 패키지 목록
+├── data/                    # 원본 문서(PDF, HWP) 및 메타데이터(CSV) 저장 폴더
 ├── conf/                    
-│   ├── config.yaml          # 설정 파일
+│   ├── config.yaml          # 실험 변수 제어 및 중앙 설정 파일
 ├── src/
-│   ├── parsing/             # 문서 로딩 및 전처리
-│   ├── embeddings/          # 임베딩
-│   ├── retrieval/           # 문서 검색기
-│   ├── generation/          # 응답 생성기
-│   ├── vector_db/           # 벡터 DB
+│   ├── parsing/             # 다중 포맷 문서 로딩, 텍스트 청킹 및 메타데이터 추출, OCR
+│   ├── embeddings/          # Dense & Sparse 벡터 임베딩 생성기
+│   ├── retrieval/           # 질의 라우팅, 검색, 필터링 및 Reranking 모듈
+│   ├── generation/          # 프롬프트 조립 및 다중 LLM 기반 답변 생성
+│   ├── evaluation/          # RAGAS 평가 및 Langfuse 로깅
+│   └── vector_db/           # Qdrant 컬렉션 관리 및 데이터 적재
 └── README.md
 ```
 
 ##  산출물
-- **최종 보고서** : [다운로드]
-- **발표자료** : [다운로드]
+- **최종 보고서** : [다운로드](https://drive.google.com/file/d/1iasGYAy0S6tCTPCsFfb1vvy06mrws6ee/view?usp=sharing)
 - **협업 일지**
-  - [천지연]
-  - [김현수]
-  - [박채빈]
-  - [손영욱]
-  - [신기성]
+  - [천지연](https://app.notion.com/p/AI-9-d953c6dfd7ee82e5a27881182b3fefcb?source=copy_link)
+  - [김현수](https://app.notion.com/p/hyeonsukim/35ff5734f6cd80aea51af036411adeb0?source=copy_link)
+  - [박채빈](https://www.notion.so/Daily-3608278ae1208093b3e1e80fbebcafd1)
+  - [손영욱](https://app.notion.com/p/360dbfa9f10b806aa8a7fe57b79d6de7?source=copy_link)
+  - [신기성](https://blog.naver.com/ispeed0011/224303672154)
