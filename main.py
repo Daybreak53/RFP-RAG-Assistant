@@ -51,6 +51,7 @@ def main(cfg: DictConfig) -> None:
             logger.info("--- [1] 문서 파싱 시작 ---")
             p = cfg.parsing
             rag_data = run_parsing(
+                run_ocr             = p.run_ocr,
                 chunk_mode          = p.chunk_mode,
                 use_contextual      = p.use_contextual,
                 chunk_size          = p.chunk_size,
