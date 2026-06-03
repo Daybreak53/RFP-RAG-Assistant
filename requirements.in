@@ -19,3 +19,9 @@ langchain-experimental
 scikit-learn
 hydra-core
 omegaconf
+paddlepaddle-gpu
+paddleocr
+paddlex
+pdfplumber
+hwp-hwpx-parser
+func-timeout
