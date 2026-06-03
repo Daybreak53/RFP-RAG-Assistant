@@ -46,8 +46,10 @@
 
 ### 1. 패키지 설치
 ```bash
+pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
 pip install -r requirements.txt
 ```
+※ paddlepaddle-gpu는 사용하는 CUDA 버전에 맞게 설치
 
 ### 2. 환경 변수 설정 (.env)
 프로젝트 루트 디렉토리에 .env 파일을 생성하고, 연동할 외부 서비스의 API 키를 입력합니다.

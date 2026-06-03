@@ -7,7 +7,7 @@ openai
 qdrant-client
 pypdf
 langchain
-langchain-community
+langchain-community<0.4.2
 langchain-core
 langchain-text-splitters
 langchain-google-genai
@@ -19,7 +19,6 @@ langchain-experimental
 scikit-learn
 hydra-core
 omegaconf
-paddlepaddle-gpu
 paddleocr
 paddlex
 pdfplumber
