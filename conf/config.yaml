@@ -47,6 +47,8 @@ parsing:
   sentence_overlap: 1
   match_threshold: 0.55
 
+  run_ocr: false          # OCR 적용 유무
+
 # 5. 검색(Retrieval) 설정
 query: "대한상공회의소 기업 재생에너지 지원센터 홈페이지 개편 및 시스템 고도화 사업 수행 중 습득한 영업비밀의 보호와 관련하여 제안사가 준수해야 할 서약 사항은 무엇인가요?"
 

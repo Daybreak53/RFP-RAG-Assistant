@@ -5,12 +5,14 @@ from typing import Any, Dict, List
 from src.parsing.data_loader import load_documents
 from src.parsing.meta_db import load_metadata_db
 from src.parsing.parser import create_chunks, convert_chunks_to_rag_format
+from src.parsing.ocr import OCR_parsing
 
 # 로거 설정
 logger = logging.getLogger(__name__)
 
 
 def run_parsing(
+    run_ocr: bool,
     chunk_mode: str = "semantic",
     use_contextual: bool = False,
     chunk_size: int = 500,
@@ -65,29 +67,39 @@ def run_parsing(
         return []
 
     # 4. 문서 청킹 (Chunking)
+    parser_kwargs = {
+        "chunk_mode": chunk_mode,
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap,
+        "semantic_threshold": semantic_threshold,
+        "sem_rec_chunksize": sem_rec_chunksize,
+        "sem_rec_overlap": sem_rec_overlap,
+        "sentences_per_chunk": sentences_per_chunk,
+        "sentence_overlap": sentence_overlap,
+        "embed_provider": embed_provider,
+        "use_contextual": use_contextual
+    }
     try:
-        chunks = create_chunks(
-            documents=documents,
-            chunk_mode=chunk_mode,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            semantic_threshold=semantic_threshold,
-            sem_rec_chunksize=sem_rec_chunksize,
-            sem_rec_overlap=sem_rec_overlap,
-            sentences_per_chunk=sentences_per_chunk,
-            sentence_overlap=sentence_overlap,
-            embed_provider=embed_provider,
-            use_contextual=use_contextual
-        )
+        if run_ocr:
+            rag_data = OCR_parsing(
+                documents=documents,
+                data_dir=data_dir,
+                csv_path=csv_path,
+                match_threshold=match_threshold,
+                **parser_kwargs  # 딕셔너리로 깔끔하게 전달!
+            )
+        else:
+            try:
+                chunks = create_chunks(documents=documents, **parser_kwargs)
+
+            except Exception as e:
+                logger.error(f"RAG 포맷 변환 단계 중 오류 발생: {e}", exc_info=True)
+                raise
+
+            rag_data = convert_chunks_to_rag_format(chunks, metadata_map=metadata_map)
+
     except Exception as e:
         logger.error(f"문서 청킹 단계 중 오류 발생: {e}", exc_info=True)
-        raise
-
-    # 5. RAG JSON 포맷으로 최종 변환
-    try:
-        rag_data = convert_chunks_to_rag_format(chunks, metadata_map=metadata_map)
-    except Exception as e:
-        logger.error(f"RAG 포맷 변환 단계 중 오류 발생: {e}", exc_info=True)
         raise
 
     logger.info(f"파싱 파이프라인 완료: 총 {len(rag_data)}개 청크 데이터가 생성되었습니다.")
